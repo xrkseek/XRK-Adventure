@@ -1,0 +1,27 @@
+# Godot 4+
+.godot/
+.import/
+.nomedia
+*.translation
+export.cfg
+export_credentials.cfg
+
+# Local / editor
+*.tmp
+*.log
+godot_run_log.txt
+.mono/
+data_*/
+mono_crash.*.json
+android/
+ios/
+.DS_Store
+Thumbs.db
+Desktop.ini
+.idea/
+.vscode/
+*~
+
+# Do not ship (third-party / nested junk)
+assets/style_refs/
+xiangrikui-adventure/
