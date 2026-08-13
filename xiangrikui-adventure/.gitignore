@@ -22,6 +22,16 @@ Desktop.ini
 .vscode/
 *~
 
-# Do not ship (third-party / nested junk)
-assets/style_refs/
+# Python toolchain
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# One-off audit scripts
+tools/_audit_*.gd
+tools/_audit_*.gd.uid
+
+# Nested accidental clone (keep out of tree)
 xiangrikui-adventure/

@@ -1,0 +1,142 @@
+---
+description: 鹿历险记 AI→像素全管线（多角色/敌人/世界）— 目录分区、通用 cook、串行精做
+alwaysApply: true
+---
+
+# 鹿历险记 · AI→像素管线（系统规则）
+
+## 0. 总原则
+
+1. **多角色**：许月珍只是第一只。配置与资产按 `id` 分区，禁止再写死 `process_xuyuezhen.py` / `player_*` 硬编码路径。
+2. **画风锚点**：已确认的角色 idle 像素 sheet。新角色/敌人/道具对齐它，禁止另起厚涂/写实风。
+3. **立绘参考**：deer-pipe `assets/professions/extra/<id>.png`（或 stickers/skills）。**禁止** `prebuilt/.../card-extra-*.png`。
+4. **串行精做**：一次只生成 **一种资产**（一个状态 / 一个道具 / 一张背景）。
+5. **像素化铁律**：`BOX → 量化无抖动 → fringe → NEAREST×N`。**禁止 LANCZOS/双线性**。
+6. **局内清晰 > 巨大**：角色默认 `cell 64×68 @1×`、`body_h` 全状态锁定；道具小而认得出。
+
+## 0.1 目录分区（必须遵守）
+
+```
+assets/
+  characters/<id>/          # 可玩角色（唯一角色真源）
+    character.json
+    raw/<state>_ai.png
+    refs/cutout.png
+    anim/<state>_sheet.png
+  enemies/anim/             # 敌人 sheet
+  props/                    # 骰子等道具
+  raw/                      # 世界/敌人 AI 原图（非角色）
+  bg/  tiles/  decor/  ui/
+tools/
+  pixel_matte.py            # 抠图唯一实现
+  pixel_cook.py             # trim / hard_pixel / sheet 共用
+  process_character.py      # 角色
+  process_ai_pixel.py       # 世界/敌人/道具
+```
+
+- **禁止**把新角色 sheet 写到 `assets/sprites/anim/player_*`。
+- **禁止**在各 `process_*.py` 复制 chroma / hard_pixel；只调 `pixel_matte` + `pixel_cook`。
+- 改 sheet 尺寸/帧数后必须 **Godot reimport**（旧缓存 → atlas 空帧 → idle 隐身）。
+
+## 0.2 抠图铁律（`pixel_matte.py`）
+
+**教训**：全图扫粉抠穿粉蛾；品红幕+粉体混色；灰格线封住黑底导致「只裁格不抠」；量化褪色品红成脚下粉条；浅粉 AA 留在左上。
+
+### 键色幕必须与主体反差
+
+| 主体主色 | 推荐幕布 | 禁止 |
+|---------|---------|------|
+| 粉色系 | **纯黑 `#000000`** | 品红/粉紫幕 |
+| 深色衣/黑裤/黑发 | 热品红 `#FF00FF` | 纯黑幕 |
+| 绿植多 | 品红或黑 | 绿色幕 |
+
+1. **只允许边缘洪水抠幕**（含深灰格线键）；禁止全图宽粉/宽黑扫描。
+2. **切格后必须 `matte()`**，禁止只 crop。
+3. **量化垫色**（`pixel_cook.hard_pixel`）：粉体→`pad=black`；深色衣角色→`pad=green`；**禁止品红垫**。
+4. **禁截断**：生图每格 ≥约 8% margin；装格用 `fit_contain` / 角色脚底用 `fit_bottom_fixed`；贴边 WARN → 重生。
+5. 空帧 / 近空帧必须 WARN。
+
+## 0.3 生图强约束
+
+1. Prompt 写明幕布色 + `NEVER truncate by cell edges`。
+2. 展翅/挥臂先加高加宽画格，不要事后硬裁。
+3. 用户确认过的帧（如双眼闭眼）不要擅自重画。
+
+## 1. 角色链（每只重复）
+
+```
+cutout → assets/characters/<id>/refs/cutout.png
+  → AI idle（键色幕反差；横条或 4×4）
+  → 用户确认
+  → AI walk → jump → attack（串行）
+  → python tools/process_character.py --id <id> --state …
+  → RunManager.character_id=<id>；SpriteFactory 读 character.json
+```
+
+| 状态 | 默认帧 | 说明 |
+|------|--------|------|
+| idle | **16** | 呼吸 + 渐进双眼眨（禁 wink） |
+| walk | 4 | 迈步+摆臂 |
+| jump | 3 | 起跳/腾空/落势 |
+| attack | 3 | 蓄力/出手/回收（sheet 内不画飞弹） |
+
+帧数/画格/垫色以 **`character.json` 为唯一真源**（许月珍见该文件）。Godot 与 Python 都读它，禁止只改一边。
+
+- 画格默认：`cell 64×68 @1×` → `@2×` 128×136，`body_h=60`
+- 许月珍弹 = `props/dice.png` + `dice_bullet.tscn`；射击朝鼠标
+- **禁止** `AnimatedSprite2D.advance()`
+
+### 新角色清单
+
+1. 复制 `assets/characters/xuyuezhen/character.json` → `characters/<id>/`
+2. 改 `id` / `display_name` / 需要时改 `quant_pad` / `states`
+3. 放入 `refs/cutout.png` 与 `raw/<state>_ai.png`
+4. `process_character.py --id <id> --state all`
+5. 设 `RunManager.character_id`（或选角 UI）
+
+## 2. 道具 / 世界
+
+```bash
+python tools/process_ai_pixel.py --what skies|door|tiles|decor|tree|flyer|enemies|world|dice|title
+```
+
+| 命令 | 产出 |
+|------|------|
+| skies | `bg/sky*` + `mid`（mid 须可抠透明天空） |
+| tree / flyer | 单资产精细抠图 |
+| tiles | 满幅 ground/edge/platform |
+| dice | `props/dice.png` |
+| flyer/enemies | `enemies/anim/*_sheet.png` |
+
+## 3. 关卡槽位（GameConstants）
+
+`VIEW 1280×720`，`GROUND_Y=620`，`GROUND_H=120`，`TILE=32`  
+`PLAT_Y 520/420/330`，`PLAT_THICKNESS=18`，`PLAT_TEX 96×28`
+
+| 槽位 | 约束 |
+|------|------|
+| sky | 只天空；cover 盖满 `room_width` |
+| mid | 山丘够高；透明天空；parallax 加宽 pad |
+| ground/platform | 满幅可平铺 |
+| tree | 完整树冠；脚底 `GROUND_Y`；左右 inset |
+| flyer | 粉蛾黑底；`FLYER 128×96`；完整翅膀+margin |
+| stretch | `aspect=keep` |
+
+## 4. 多帧与工具
+
+1. 像素横板优先关键帧清晰（idle 16 / walk 4～8），勿盲目追 100 帧。
+2. SpriteCook / sprite-animator 可作生帧前端；入库前必须 `pixel_matte` + `process_*`。
+3. 第三方 clone → `Desktop\XRKbar\`，不进本仓。
+
+```bash
+python tools/process_character.py --id xuyuezhen --state idle|walk|jump|attack|all
+python tools/process_ai_pixel.py --what skies|tree|flyer|tiles|decor|world
+```
+
+## 5. 对助手的约束
+
+- 用户说「先 X」→ **只做 X**。
+- 新角色走 `characters/<id>` + `process_character.py`，不要复活单角色脚本。
+- 改抠图只改 `pixel_matte.py`；改硬像素只改 `pixel_cook.py`。
+- 改 `character.json` 帧数/尺寸后同步 reimport，并确认 `SpriteFactory` 无空帧。
+- 关卡美术填 RoomBuilder 槽位；禁止 `AnimatedSprite2D.advance()`。

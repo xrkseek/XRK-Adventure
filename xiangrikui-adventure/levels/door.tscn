@@ -1,20 +1,22 @@
-[gd_scene load_steps=3 format=3]
+[gd_scene load_steps=4 format=3]
 
 [ext_resource type="Texture2D" path="res://assets/tiles/door.png" id="1"]
+[ext_resource type="Script" path="res://levels/door.gd" id="2"]
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_1"]
-size = Vector2(56, 100)
+size = Vector2(72, 128)
 
 [node name="Door" type="Area2D"]
 collision_layer = 0
 collision_mask = 2
 monitoring = true
+script = ExtResource("2")
 
 [node name="Sprite" type="Sprite2D" parent="."]
 texture = ExtResource("1")
-position = Vector2(0, -50)
-scale = Vector2(0.7, 0.7)
+position = Vector2(0, -72)
+texture_filter = 0
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="."]
-position = Vector2(0, -50)
+position = Vector2(0, -64)
 shape = SubResource("RectangleShape2D_1")

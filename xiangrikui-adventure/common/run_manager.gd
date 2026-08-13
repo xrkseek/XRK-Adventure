@@ -7,10 +7,11 @@ signal room_cleared
 signal upgrade_offered(choices: Array)
 signal stats_changed
 
-const MAX_FLOOR := 6
-const ROOMS_PER_FLOOR := 3
+const MAX_FLOOR := 3
+const ROOMS_PER_FLOOR := 2
 
 var mode: String = "title"  # title | play | upgrade | dead | win
+var character_id: String = "xuyuezhen"
 var floor_num: int = 1
 var room_num: int = 0
 var run_seed: int = 0
@@ -20,8 +21,8 @@ var upgrade_names: Array[String] = []
 var player_stats := {
 	"hp": 5,
 	"max_hp": 5,
-	"speed": 220.0,
-	"jump_v": -460.0,
+	"speed": GameConstants.MOVE_SPEED,
+	"jump_v": GameConstants.JUMP_V,
 	"fire_cd": 0.22,
 	"damage": 1,
 	"spread": 1,
@@ -58,8 +59,8 @@ func start_run() -> void:
 	player_stats = {
 		"hp": 5,
 		"max_hp": 5,
-		"speed": 220.0,
-		"jump_v": -460.0,
+		"speed": GameConstants.MOVE_SPEED,
+		"jump_v": GameConstants.JUMP_V,
 		"fire_cd": 0.22,
 		"damage": 1,
 		"spread": 1,

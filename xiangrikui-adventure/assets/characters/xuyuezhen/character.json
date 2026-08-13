@@ -1,0 +1,18 @@
+{
+  "id": "xuyuezhen",
+  "display_name": "许月珍",
+  "cell_w": 64,
+  "cell_h": 68,
+  "px": 2,
+  "body_h": 60,
+  "palette": 96,
+  "quant_pad": "green",
+  "key_hint": "magenta",
+  "states": {
+    "idle": { "frames": 16, "fps": 8.0, "loop": true },
+    "walk": { "frames": 4, "fps": 10.0, "loop": true },
+    "jump": { "frames": 3, "fps": 10.0, "loop": true },
+    "attack": { "frames": 3, "fps": 14.0, "loop": false }
+  },
+  "projectile": "dice"
+}

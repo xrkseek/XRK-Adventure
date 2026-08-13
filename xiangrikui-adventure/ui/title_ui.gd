@@ -26,4 +26,7 @@ func _ignore_mouse_on_decorations() -> void:
 
 
 func _on_start_pressed() -> void:
+	if start_btn:
+		start_btn.release_focus()
+	get_viewport().gui_release_focus()
 	RunManager.start_run()

@@ -11,7 +11,6 @@ func setup(vel: Vector2, dmg: int, pierce_count: int) -> void:
 	velocity = vel
 	damage = dmg
 	pierce = pierce_count
-	rotation = vel.angle()
 
 
 func _ready() -> void:
