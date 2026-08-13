@@ -14,6 +14,10 @@
 @onready var title_ui: Control = %TitleUI
 @onready var upgrade_ui: Control = %UpgradeUI
 @onready var end_ui: Control = %EndUI
+@onready var character_select_ui: Control = %CharacterSelectUI
+@onready var settings_ui: Control = %SettingsUI
+@onready var touch_controls: CanvasLayer = %TouchControls
+
 
 var player: CharacterBody2D
 var door: Area2D
@@ -24,6 +28,10 @@ var _room_gen: int = 0
 var _title_petals: Array[Sprite2D] = []
 var _on_title: bool = true
 var _ambient_t: float = 0.0
+var _bg_anim_t: float = 0.0
+var _bg_anim_i: int = 0
+var _bg_anim_textures: Array[Texture2D] = []
+var _mid_anim_textures: Array[Texture2D] = []
 var current_theme: RoomBuilder.RoomTheme = RoomBuilder.RoomTheme.MEADOW
 
 var player_scene: PackedScene = preload("res://entities/player/player.tscn")
@@ -39,6 +47,16 @@ func _ready() -> void:
 	title_ui.visible = true
 	upgrade_ui.visible = false
 	end_ui.visible = false
+	if character_select_ui:
+		character_select_ui.visible = false
+	if settings_ui:
+		settings_ui.visible = false
+		if settings_ui.has_signal("closed") and not settings_ui.closed.is_connected(_on_settings_closed):
+			settings_ui.closed.connect(_on_settings_closed)
+		if settings_ui.has_signal("quit_to_title_requested") and not settings_ui.quit_to_title_requested.is_connected(_on_quit_to_title):
+			settings_ui.quit_to_title_requested.connect(_on_quit_to_title)
+	if touch_controls and touch_controls.has_method("set_gameplay_visible"):
+		touch_controls.call("set_gameplay_visible", false)
 	hud.visible = false
 	entities.z_index = GameConstants.Z_ENTITIES
 	projectiles.z_index = GameConstants.Z_PROJECTILES
@@ -53,11 +71,10 @@ func _ready() -> void:
 
 
 func _smoke_title_start() -> void:
-	var ev := InputEventKey.new()
-	ev.keycode = KEY_ENTER
-	ev.physical_keycode = KEY_ENTER
-	ev.pressed = true
-	_input(ev)
+	open_character_select()
+	await get_tree().process_frame
+	if character_select_ui and character_select_ui.has_method("_on_confirm"):
+		character_select_ui.call("_on_confirm")
 	await get_tree().process_frame
 	await get_tree().process_frame
 	var ok := RunManager.mode == "play" and not title_ui.visible and player != null
@@ -83,20 +100,118 @@ func _smoke_shoot() -> void:
 	get_tree().quit(0 if after > before else 1)
 
 
-func _input(event: InputEvent) -> void:
+func _unhandled_input(event: InputEvent) -> void:
+	## 用 unhandled：按钮/滑条吃掉的点击不会再误触发开局。
+	if settings_ui and settings_ui.visible:
+		if event.is_action_pressed("pause") or event.is_action_pressed("ui_cancel"):
+			settings_ui.call("close")
+			get_viewport().set_input_as_handled()
+		return
+	if event.is_action_pressed("pause"):
+		_toggle_settings_from_pause()
+		get_viewport().set_input_as_handled()
+		return
 	if not _is_menu_mode():
 		return
 	if event.is_echo() or not event.is_pressed():
 		return
-	if _event_requests_start(event):
+	# 鼠标点 UI 已由 Control 处理；这里只认键盘/手柄确认，绝不认射击键。
+	if event is InputEventMouseButton:
+		return
+	if character_select_ui and character_select_ui.visible:
+		if event.is_action_pressed("ui_cancel"):
+			show_title_menu()
+			get_viewport().set_input_as_handled()
+			return
+		if _event_requests_menu_confirm(event):
+			if character_select_ui.has_method("_on_confirm"):
+				character_select_ui.call("_on_confirm")
+			get_viewport().set_input_as_handled()
+		return
+	if title_ui and title_ui.visible and _event_requests_menu_confirm(event):
+		open_character_select()
+		get_viewport().set_input_as_handled()
+	elif end_ui and end_ui.visible and _event_requests_menu_confirm(event):
 		RunManager.start_run()
 		get_viewport().set_input_as_handled()
+
+
+func open_settings(from_pause: bool = false) -> void:
+	if settings_ui == null:
+		return
+	if from_pause and RunManager.mode == "play":
+		get_tree().paused = true
+		if player and is_instance_valid(player):
+			player.enable_control(false)
+	settings_ui.call("open", from_pause)
+
+
+func _toggle_settings_from_pause() -> void:
+	if settings_ui and settings_ui.visible:
+		settings_ui.call("close")
+		return
+	if RunManager.mode == "play":
+		open_settings(true)
+	elif RunManager.mode == "title" or _on_title:
+		open_settings(false)
+
+
+func _on_settings_closed() -> void:
+	get_tree().paused = false
+	if RunManager.mode == "play" and player and is_instance_valid(player):
+		player.enable_control(true)
+	if title_ui and title_ui.visible:
+		var settings_btn := title_ui.get_node_or_null("%SettingsButton")
+		if settings_btn and settings_btn is BaseButton:
+			(settings_btn as BaseButton).grab_focus()
+		else:
+			var start_btn := title_ui.get_node_or_null("%StartButton")
+			if start_btn and start_btn is BaseButton:
+				(start_btn as BaseButton).grab_focus()
+
+
+func _on_quit_to_title() -> void:
+	get_tree().paused = false
+	RunManager.mode = "title"
+	if touch_controls and touch_controls.has_method("set_gameplay_visible"):
+		touch_controls.call("set_gameplay_visible", false)
+	_clear_layer(entities)
+	_clear_projectiles()
+	player = null
+	door = null
+	hud.visible = false
+	upgrade_ui.visible = false
+	end_ui.visible = false
+	show_title_menu()
+
+
+func open_character_select() -> void:
+	title_ui.visible = false
+	end_ui.visible = false
+	if has_node("CharSelectLayer"):
+		$CharSelectLayer.visible = true
+	if character_select_ui and character_select_ui.has_method("open_select"):
+		character_select_ui.call("open_select")
+
+
+func show_title_menu() -> void:
+	RunManager.mode = "title"
+	end_ui.visible = false
+	if character_select_ui and character_select_ui.has_method("close_select"):
+		character_select_ui.call("close_select")
+	_show_title_bg()
+	if title_ui.has_method("_setup_logo"):
+		title_ui.call("_setup_logo")
+	var start_btn := title_ui.get_node_or_null("%StartButton")
+	if start_btn and start_btn is BaseButton:
+		(start_btn as BaseButton).grab_focus()
 
 
 func _process(delta: float) -> void:
 	_shake = maxf(0.0, _shake - delta * 1.6)
 	_ambient_t += delta
 	_tick_title_petals(delta)
+	_tick_bg_anim(delta)
 	_tick_ambient(delta)
 	if clouds and not _on_title:
 		for c in clouds.get_children():
@@ -114,7 +229,7 @@ func _process(delta: float) -> void:
 		var target := Vector2(player.global_position.x, GameConstants.VIEW_H * 0.5)
 		target.x = clampf(target.x, GameConstants.VIEW_W * 0.5, maxf(GameConstants.VIEW_W * 0.5, room_width - GameConstants.VIEW_W * 0.5))
 		camera.global_position = camera.global_position.lerp(target, 1.0 - pow(0.001, delta))
-		var trauma := _shake * _shake
+		var trauma := _shake * _shake * (Settings.shake_mul() if Settings else 1.0)
 		camera.offset = Vector2(randf_range(-1, 1), randf_range(-1, 1)) * 14.0 * trauma
 		if mid_bg and mid_bg.texture and mid_bg.visible:
 			# Soft parallax only — mid is wider than the room so edges never open a void.
@@ -172,17 +287,46 @@ func _tick_title_petals(delta: float) -> void:
 			p.position = Vector2(randf_range(40, GameConstants.VIEW_W - 40), randf_range(-40, -10))
 
 
+func _sheet_atlas_frames(path: String, frame_count: int, frame_w: int, frame_h: int) -> Array[Texture2D]:
+	var out: Array[Texture2D] = []
+	var tex: Texture2D = load(path)
+	if tex == null:
+		push_warning("Missing bg sheet: " + path)
+		return out
+	for i in frame_count:
+		var at := AtlasTexture.new()
+		at.atlas = tex
+		at.filter_clip = true
+		at.region = Rect2(i * frame_w, 0, frame_w, frame_h)
+		out.append(at)
+	return out
+
+
+func _tick_bg_anim(delta: float) -> void:
+	if _bg_anim_textures.is_empty():
+		return
+	_bg_anim_t += delta
+	if _bg_anim_t < 1.0 / SpriteFactory.BG_FPS:
+		return
+	_bg_anim_t = 0.0
+	_bg_anim_i = (_bg_anim_i + 1) % _bg_anim_textures.size()
+	bg.texture = _bg_anim_textures[_bg_anim_i]
+	if mid_bg and mid_bg.visible and not _mid_anim_textures.is_empty():
+		mid_bg.texture = _mid_anim_textures[_bg_anim_i % _mid_anim_textures.size()]
+
+
 func _is_menu_mode() -> bool:
 	return RunManager.mode == "title" or RunManager.mode == "dead" or RunManager.mode == "win"
 
 
-func _event_requests_start(event: InputEvent) -> bool:
-	if event.is_action("confirm") or event.is_action("ui_accept") or event.is_action("jump"):
+func _event_requests_menu_confirm(event: InputEvent) -> bool:
+	## 菜单确认：Enter / 手柄 A / 结算 R。不含射击、不含鼠标（鼠标走按钮）。
+	if event.is_action_pressed("confirm") or event.is_action_pressed("ui_accept"):
 		return true
-	if RunManager.mode == "title" and event.is_action("shoot"):
+	if (RunManager.mode == "dead" or RunManager.mode == "win") and event.is_action_pressed("restart"):
 		return true
-	if (RunManager.mode == "dead" or RunManager.mode == "win") and event.is_action("restart"):
-		return true
+	if event is InputEventJoypadButton:
+		return (event as InputEventJoypadButton).button_index == JOY_BUTTON_A
 	if event is InputEventKey:
 		var k := event as InputEventKey
 		if (
@@ -190,8 +334,6 @@ func _event_requests_start(event: InputEvent) -> bool:
 			or k.keycode == KEY_KP_ENTER
 			or k.physical_keycode == KEY_ENTER
 			or k.physical_keycode == KEY_KP_ENTER
-			or k.keycode == KEY_SPACE
-			or k.physical_keycode == KEY_SPACE
 		):
 			return true
 		if (RunManager.mode == "dead" or RunManager.mode == "win") and (
@@ -205,13 +347,33 @@ func _show_title_bg() -> void:
 	_on_title = true
 	if has_node("TitleLayer"):
 		$TitleLayer.visible = true
+	if has_node("CharSelectLayer"):
+		$CharSelectLayer.visible = true
 	title_ui.visible = true
 	title_ui.mouse_filter = Control.MOUSE_FILTER_STOP
-	bg.texture = load("res://assets/bg/title.png")
+	if character_select_ui:
+		character_select_ui.visible = false
+	# 标题只留一层干净风景，不要中景变形树
+	_mid_anim_textures.clear()
+	_bg_anim_textures = _sheet_atlas_frames(
+		"res://assets/bg/title_sheet.png",
+		SpriteFactory.BG_FRAMES,
+		SpriteFactory.BG_TITLE_W,
+		SpriteFactory.BG_TITLE_H
+	)
+	_bg_anim_i = 0
+	_bg_anim_t = 0.0
+	bg.texture = _bg_anim_textures[0] if not _bg_anim_textures.is_empty() else load("res://assets/bg/title.png")
 	bg.centered = false
-	bg.position = Vector2.ZERO
-	# title.png is 960x540 @2x from 480x270
-	bg.scale = Vector2(GameConstants.VIEW_W / 960.0, GameConstants.VIEW_H / 540.0)
+	# 等比 cover，禁止 X/Y 不同比例拉伸
+	var ts := maxf(
+		GameConstants.VIEW_W / float(SpriteFactory.BG_TITLE_W),
+		GameConstants.VIEW_H / float(SpriteFactory.BG_TITLE_H)
+	)
+	bg.scale = Vector2(ts, ts)
+	var drawn_w := float(SpriteFactory.BG_TITLE_W) * ts
+	var drawn_h := float(SpriteFactory.BG_TITLE_H) * ts
+	bg.position = Vector2((GameConstants.VIEW_W - drawn_w) * 0.5, (GameConstants.VIEW_H - drawn_h) * 0.5)
 	if mid_bg:
 		mid_bg.visible = false
 	_spawn_title_petals()
@@ -254,15 +416,23 @@ func _on_run_started() -> void:
 	_clear_title_petals()
 	if has_node("TitleLayer"):
 		$TitleLayer.visible = false
+	if has_node("CharSelectLayer"):
+		$CharSelectLayer.visible = false
 	title_ui.visible = false
+	if character_select_ui:
+		character_select_ui.visible = false
 	end_ui.visible = false
 	upgrade_ui.visible = false
 	hud.visible = true
 	get_viewport().gui_release_focus()
+	if touch_controls and touch_controls.has_method("set_gameplay_visible"):
+		touch_controls.call("set_gameplay_visible", true)
 	_build_room()
 
 
 func _on_run_ended(_victory: bool) -> void:
+	if touch_controls and touch_controls.has_method("set_gameplay_visible"):
+		touch_controls.call("set_gameplay_visible", false)
 	if player and is_instance_valid(player):
 		player.enable_control(false)
 	_clear_projectiles()
@@ -312,24 +482,57 @@ func _build_room() -> void:
 	_clear_title_petals()
 	# Cover full room (+ pad). Never leave a blue void on the right when scrolling.
 	var cover_w := maxf(room_width, GameConstants.VIEW_W) + 160.0
-	bg.texture = load(RoomBuilder.sky_path(current_theme))
+	_bg_anim_textures = _sheet_atlas_frames(
+		RoomBuilder.sky_sheet_path(current_theme),
+		SpriteFactory.BG_FRAMES,
+		SpriteFactory.BG_SKY_W,
+		SpriteFactory.BG_SKY_H
+	)
+	_bg_anim_i = 0
+	_bg_anim_t = 0.0
+	bg.texture = (
+		_bg_anim_textures[0]
+		if not _bg_anim_textures.is_empty()
+		else load(RoomBuilder.sky_path(current_theme))
+	)
 	bg.centered = false
-	bg.position = Vector2(-40, 0)
-	var sky_tw := float(bg.texture.get_width())
-	var sky_th := float(bg.texture.get_height())
-	bg.scale = Vector2(cover_w / sky_tw, GameConstants.VIEW_H / sky_th)
+	var sky_tw := float(SpriteFactory.BG_SKY_W)
+	var sky_th := float(SpriteFactory.BG_SKY_H)
+	# 等比 cover 铺满房间宽度与视高
+	var sky_s := maxf(cover_w / sky_tw, GameConstants.VIEW_H / sky_th)
+	bg.scale = Vector2(sky_s, sky_s)
+	var sky_drawn_w := sky_tw * sky_s
+	var sky_drawn_h := sky_th * sky_s
+	bg.position = Vector2(-40.0 + (cover_w - sky_drawn_w) * 0.5, (GameConstants.VIEW_H - sky_drawn_h) * 0.5)
 	if mid_bg:
-		mid_bg.texture = load("res://assets/bg/mid.png")
+		# 中景只留山丘（无变形树）；树交给 decor
+		_mid_anim_textures = _sheet_atlas_frames(
+			"res://assets/bg/mid_sheet.png",
+			SpriteFactory.BG_FRAMES,
+			SpriteFactory.BG_MID_W,
+			SpriteFactory.BG_MID_H
+		)
+		mid_bg.texture = (
+			_mid_anim_textures[0]
+			if not _mid_anim_textures.is_empty()
+			else load("res://assets/bg/mid.png")
+		)
 		mid_bg.visible = current_theme != RoomBuilder.RoomTheme.CREEK
 		mid_bg.centered = false
-		var mid_tw := float(mid_bg.texture.get_width())
-		var mid_th := float(mid_bg.texture.get_height())
-		# Hills should read tall (not a flat ribbon): ~55% of view, foot at GROUND_Y.
-		var mid_screen_h := GameConstants.VIEW_H * 0.55
-		var mid_cover := cover_w * 1.15
-		mid_bg.scale = Vector2(mid_cover / mid_tw, mid_screen_h / mid_th)
-		var mid_base_y := GameConstants.GROUND_Y - mid_screen_h
-		var mid_pad := 80.0
+		var mid_tw := float(SpriteFactory.BG_MID_W)
+		var mid_th := float(SpriteFactory.BG_MID_H)
+		var mid_cover := cover_w * 1.12
+		var mid_screen_h := GameConstants.VIEW_H * 0.38
+		# 等比：按宽度铺满，高度随比例走（不再单独压扁高度）
+		var mid_s := mid_cover / mid_tw
+		var mid_h_cap := mid_screen_h / mid_th
+		if mid_s > mid_h_cap:
+			mid_s = mid_h_cap
+		mid_bg.scale = Vector2(mid_s, mid_s)
+		var mid_drawn_h := mid_th * mid_s
+		var mid_drawn_w := mid_tw * mid_s
+		var mid_base_y := GameConstants.GROUND_Y - mid_drawn_h
+		var mid_pad := maxf(0.0, (mid_cover - mid_drawn_w) * 0.5)
 		mid_bg.set_meta("base_y", mid_base_y)
 		mid_bg.set_meta("pad_x", mid_pad)
 		mid_bg.position = Vector2(-mid_pad, mid_base_y)
@@ -342,6 +545,8 @@ func _build_room() -> void:
 	player.add_to_group("player")
 	player.global_position = Vector2(110, GameConstants.GROUND_Y)
 	entities.add_child(player)
+	if player.has_method("bind_room"):
+		player.call("bind_room", room_width)
 	player.died.connect(_on_player_died)
 	player.heal_full_from_stats()
 	player.enable_control(true)

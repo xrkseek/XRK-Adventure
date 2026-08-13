@@ -57,6 +57,13 @@ Godot 与 Python **都读** `character.json`。禁止只改一边。
 
 后续选角 UI 只改 `character_id`，不必改工厂硬编码。
 
+## 设置 / 跨端输入
+
+- Autoload `Settings`（`user://settings.cfg`）：音量、全屏、震动幅度、触屏模式
+- `InputBootstrap`：补手柄绑定（A 跳、X/B/RB/RT 射、左摇杆移动、右摇杆瞄准、Start 暂停）
+- 标题：开始 / 设置 / 退出；局内 Esc·Start 暂停设置
+- 触屏：左虚拟摇杆 + 右跳/射（设置里 auto/on/off）
+
 ## 管线铁律（摘要）
 
 - 抠图只走 `pixel_matte`（边缘洪水）；禁止全图宽粉扫描

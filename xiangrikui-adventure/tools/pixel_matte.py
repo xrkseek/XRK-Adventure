@@ -14,7 +14,10 @@ from PIL import Image
 
 
 def is_screen_key(r: int, g: int, b: int, a: int = 255) -> bool:
-    """热品红 / 亮粉幕布（AI 常用 #FF00FF），含量化后褪色的品红垫。"""
+    """热品红 / 亮粉幕布（AI 常用 #FF00FF），含量化后褪色与抗锯齿溢色。
+
+    粉主体请用黑幕；此键主要服务品红幕角色/道具。过宽会误伤粉蛾，过窄留品红边。
+    """
     if a < 36:
         return True
     # 真品红：R、B 高且 G 明显低
@@ -26,7 +29,52 @@ def is_screen_key(r: int, g: int, b: int, a: int = 255) -> bool:
     # 量化褪色品红垫（常见于脚下「粉地板」）：G 极低，R≈B
     if g <= 45 and r >= 70 and b >= 70 and abs(r - b) <= 50 and r + b >= 2 * g + 80:
         return True
+    # 中段品红抗锯齿（AI 把 #FF00FF 混进轮廓）：R、B 都明显高于 G
+    # 例：(175,79,146) (126,53,136) — 旧阈值漏掉 → 标题/轮廓品红边
+    if (
+        g <= 120
+        and r >= 100
+        and b >= 90
+        and (r - g) >= 35
+        and (b - g) >= 25
+        and (r + b) >= (2 * g + 50)
+    ):
+        return True
+    # 红偏品红 AA（B 略低于 R，仍是幕溢色，不是黄花/木板）
+    if (
+        g <= 100
+        and r >= 150
+        and b >= 70
+        and (r - g) >= 50
+        and (b - g) >= 15
+        and (r + b) >= (2 * g + 45)
+        and r >= b - 10
+    ):
+        return True
     return False
+
+
+def is_dark_purple_screen(r: int, g: int, b: int) -> bool:
+    """品红幕外圈的深紫/灰紫（会封住边缘洪水，导致「只裁格不抠」）。
+
+    仅作幕布连通；内部紫色衣若被非键色包围则不会被吃掉。
+    """
+    mx = max(r, g, b)
+    mn = min(r, g, b)
+    if mx > 105 or mx < 18:
+        return False
+    if g > 58:
+        return False
+    if r < 24 or b < 28:
+        return False
+    if abs(r - b) > 48:
+        return False
+    if (r + b) < (2 * g + 12):
+        return False
+    # 排除近中性深灰（已由 is_dark_key 处理）
+    if (mx - mn) < 8:
+        return False
+    return True
 
 
 def is_matte_black(r: int, g: int, b: int) -> bool:
@@ -50,7 +98,20 @@ def is_dark_key(r: int, g: int, b: int) -> bool:
 
 
 def is_edge_seed(r: int, g: int, b: int, a: int) -> bool:
-    return is_screen_key(r, g, b, a) or (a >= 36 and is_dark_key(r, g, b))
+    return (
+        is_screen_key(r, g, b, a)
+        or (a >= 36 and is_dark_key(r, g, b))
+        or (a >= 36 and is_dark_purple_screen(r, g, b))
+    )
+
+
+def _is_floodable_key(r: int, g: int, b: int, a: int) -> bool:
+    """洪水可穿过的幕像素（含深紫封边）。"""
+    return (
+        is_screen_key(r, g, b, a)
+        or is_dark_key(r, g, b)
+        or is_dark_purple_screen(r, g, b)
+    )
 
 
 def chroma_flood(img: Image.Image) -> Image.Image:
@@ -86,7 +147,7 @@ def chroma_flood(img: Image.Image) -> Image.Image:
                     continue
                 r, g, b, a = px[nx, ny]
                 # 洪水只沿「仍像幕布」的像素走；一旦碰到实体色就停
-                if is_screen_key(r, g, b, a) or is_dark_key(r, g, b):
+                if _is_floodable_key(r, g, b, a):
                     visited[ny][nx] = True
                     q.append((nx, ny))
                 else:
@@ -101,7 +162,7 @@ def strip_orphan_dark(img: Image.Image) -> Image.Image:
     px = img.load()
 
     def is_color(r: int, g: int, b: int, a: int) -> bool:
-        return a >= 128 and not is_dark_key(r, g, b) and not is_screen_key(r, g, b, a)
+        return a >= 128 and not _is_floodable_key(r, g, b, a)
 
     seen = [[False] * w for _ in range(h)]
     for y in range(h):
@@ -164,8 +225,11 @@ def strip_orphan_dark(img: Image.Image) -> Image.Image:
     return img
 
 
-def fringe_clean(img: Image.Image, passes: int = 2) -> Image.Image:
-    """只清边缘键色溢色/白晕；禁止删粉主体、禁止删内部深色。"""
+def fringe_clean(img: Image.Image, passes: int = 3) -> Image.Image:
+    """只清边缘键色溢色/白晕；禁止删粉主体、禁止删内部深色。
+
+    关键贴透明/画布边的像素才杀；内部腮红/粉翅不碰。
+    """
     img = img.convert("RGBA")
     w, h = img.size
     for _ in range(passes):
@@ -177,6 +241,7 @@ def fringe_clean(img: Image.Image, passes: int = 2) -> Image.Image:
                 if a < 128:
                     continue
                 near_empty = False
+                empty_n = 0
                 for dy in (-1, 0, 1):
                     for dx in (-1, 0, 1):
                         if dx == 0 and dy == 0:
@@ -184,45 +249,98 @@ def fringe_clean(img: Image.Image, passes: int = 2) -> Image.Image:
                         nx, ny = x + dx, y + dy
                         if nx < 0 or ny < 0 or nx >= w or ny >= h or px[nx, ny][3] < 64:
                             near_empty = True
-                            break
-                    if near_empty:
-                        break
+                            empty_n += 1
                 if not near_empty:
                     continue
-                # 边缘残留真品红
-                if is_screen_key(r, g, b, a):
+                # 边缘残留真品红 / 中段品红 AA / 深紫幕
+                if _is_floodable_key(r, g, b, a):
                     kill.append((x, y))
                     continue
-                # 边缘白晕（抗锯齿）
                 lum = (r + g + b) / 3.0
+                # 边缘白晕（抗锯齿）
                 neutral = abs(r - g) <= 16 and abs(g - b) <= 16 and abs(r - b) <= 20
                 if neutral and lum >= 200:
                     kill.append((x, y))
                     continue
-                # 边缘粉紫溢色：R、B 明显高于 G
-                if r > g + 40 and b > g + 30 and g < 100 and lum > 140:
+                # 边缘粉紫溢色：R、B 明显高于 G（放宽 lum，旧 >140 漏掉 175,79,146）
+                if r > g + 35 and b > g + 20 and g < 130 and (r + b) > (2 * g + 40):
                     kill.append((x, y))
                     continue
+                # 强贴边（≥3 邻空）时更狠：红偏品红/灰紫晕
+                if empty_n >= 3:
+                    if g <= 120 and r >= 120 and b >= 60 and (r - g) >= 30 and (b - g) >= 8:
+                        kill.append((x, y))
+                        continue
+                    if is_dark_purple_screen(r, g, b):
+                        kill.append((x, y))
+                        continue
                 # 品红幕抗锯齿浅粉（左上常见）：R≈B 很高，仍偏品红
-                if (
-                    r >= 230
-                    and b >= 220
-                    and abs(r - b) <= 35
-                    and (r + b) / 2.0 > g + 12
-                ):
-                    kill.append((x, y))
-                    continue
                 if (
                     r >= 220
                     and b >= 200
                     and g <= 180
                     and abs(r - b) <= 40
-                    and r > g + 20
-                    and b > g + 15
+                    and r > g + 15
+                    and b > g + 10
                 ):
                     kill.append((x, y))
         for x, y in kill:
             px[x, y] = (0, 0, 0, 0)
+    return img
+
+
+def strip_orphan_screen(img: Image.Image) -> Image.Image:
+    """清掉封在轮廓里、又不贴「实体色」的品红/深紫小岛（量化粉条、格内残幕）。"""
+    img = img.convert("RGBA")
+    w, h = img.size
+    px = img.load()
+
+    def is_solid(r: int, g: int, b: int, a: int) -> bool:
+        return a >= 128 and not _is_floodable_key(r, g, b, a)
+
+    seen = [[False] * w for _ in range(h)]
+    for y in range(h):
+        for x in range(w):
+            if seen[y][x]:
+                continue
+            r, g, b, a = px[x, y]
+            if a < 128 or not _is_floodable_key(r, g, b, a):
+                seen[y][x] = True
+                continue
+            q: deque[tuple[int, int]] = deque([(x, y)])
+            seen[y][x] = True
+            cells: list[tuple[int, int]] = []
+            touches_solid = False
+            while q:
+                cx, cy = q.popleft()
+                cells.append((cx, cy))
+                for dy in (-1, 0, 1):
+                    for dx in (-1, 0, 1):
+                        if dx == 0 and dy == 0:
+                            continue
+                        nx, ny = cx + dx, cy + dy
+                        if nx < 0 or ny < 0 or nx >= w or ny >= h or seen[ny][nx]:
+                            continue
+                        nr, ng, nb, na = px[nx, ny]
+                        if na < 128:
+                            seen[ny][nx] = True
+                            continue
+                        if is_solid(nr, ng, nb, na):
+                            touches_solid = True
+                            seen[ny][nx] = True
+                            continue
+                        if _is_floodable_key(nr, ng, nb, na):
+                            seen[ny][nx] = True
+                            q.append((nx, ny))
+                        else:
+                            seen[ny][nx] = True
+            if not touches_solid:
+                for cx, cy in cells:
+                    px[cx, cy] = (0, 0, 0, 0)
+                continue
+            # 贴实体的幕溢色环：整块删（黄花/木板/衣缘不靠品红过渡）
+            for cx, cy in cells:
+                px[cx, cy] = (0, 0, 0, 0)
     return img
 
 
@@ -284,8 +402,9 @@ def keep_largest_blob(img: Image.Image, min_keep_ratio: float = 0.05) -> Image.I
 
 
 def matte(img: Image.Image, *, blob: bool = True) -> Image.Image:
-    """标准管线：边缘洪水抠幕 → 清封闭黑底 → 边缘 fringe → 可选主连通域。"""
+    """标准管线：边缘洪水抠幕 → 清封闭黑底 → 清残品红岛 → 边缘 fringe → 可选主连通域。"""
     out = strip_orphan_dark(chroma_flood(img))
+    out = strip_orphan_screen(out)
     out = fringe_clean(out)
     if blob:
         out = keep_largest_blob(out)

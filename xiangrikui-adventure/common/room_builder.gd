@@ -56,6 +56,16 @@ static func sky_path(t: RoomTheme) -> String:
 			return "res://assets/bg/sky.png"
 
 
+static func sky_sheet_path(t: RoomTheme) -> String:
+	match t:
+		RoomTheme.DUSK:
+			return "res://assets/bg/sky_dusk_sheet.png"
+		RoomTheme.CREEK:
+			return "res://assets/bg/sky_creek_sheet.png"
+		_:
+			return "res://assets/bg/sky_sheet.png"
+
+
 func build(
 	platforms: Node2D,
 	decor_back: Node2D,
@@ -73,9 +83,31 @@ func build(
 	_clear(clouds)
 
 	_add_ground(platforms, 0.0, GameConstants.GROUND_Y, room_w, GameConstants.GROUND_H)
+	_add_side_walls(platforms, room_w)
 	_add_platform_course(platforms, floor_n)
 	_scatter_decor(decor_back, decor_front, floor_n)
 	_spawn_clouds(clouds)
+
+
+func _add_side_walls(parent: Node2D, room_w: float) -> void:
+	## Invisible walls so the player cannot walk off the room edges.
+	var wall_h := GameConstants.VIEW_H + 200.0
+	var wall_w := 48.0
+	for side in [-1, 1]:
+		var body := StaticBody2D.new()
+		body.collision_layer = GameConstants.LAYER_WORLD
+		body.collision_mask = 0
+		var shape := CollisionShape2D.new()
+		var rect := RectangleShape2D.new()
+		rect.size = Vector2(wall_w, wall_h)
+		shape.shape = rect
+		body.add_child(shape)
+		parent.add_child(body)
+		if side < 0:
+			body.position = Vector2(-wall_w * 0.5, wall_h * 0.5 - 80.0)
+		else:
+			body.position = Vector2(room_w + wall_w * 0.5, wall_h * 0.5 - 80.0)
+
 
 
 func _clear(node: Node) -> void:

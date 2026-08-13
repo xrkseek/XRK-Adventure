@@ -14,6 +14,18 @@ const FLYER_W := 128
 const FLYER_H := 96
 const BOSS_W := 144
 const BOSS_H := 144
+const TITLE_LOGO_W := 710
+const TITLE_LOGO_H := 440
+const TITLE_LOGO_FRAMES := 4
+const TITLE_LOGO_FPS := 5.0
+const BG_SKY_W := 960
+const BG_SKY_H := 360
+const BG_MID_W := 960
+const BG_MID_H := 280
+const BG_TITLE_W := 960
+const BG_TITLE_H := 540
+const BG_FRAMES := 2
+const BG_FPS := 2.0
 
 
 static func _new_frames() -> SpriteFrames:
@@ -111,6 +123,27 @@ static func make_weed_frames() -> SpriteFrames:
 static func make_flyer_frames() -> SpriteFrames:
 	var sf := _new_frames()
 	_add_sheet_anim(sf, "fly", "res://assets/enemies/anim/enemy_flyer_sheet.png", 4, FLYER_W, FLYER_H, 12.0, true)
+	return sf
+
+
+static func make_title_logo_frames() -> SpriteFrames:
+	var sf := _new_frames()
+	_add_sheet_anim(
+		sf,
+		"idle",
+		"res://assets/ui/title_logo_sheet.png",
+		TITLE_LOGO_FRAMES,
+		TITLE_LOGO_W,
+		TITLE_LOGO_H,
+		TITLE_LOGO_FPS,
+		true
+	)
+	return sf
+
+
+static func make_bg_frames(sheet_path: String, frame_w: int, frame_h: int, fps: float = BG_FPS) -> SpriteFrames:
+	var sf := _new_frames()
+	_add_sheet_anim(sf, "idle", sheet_path, BG_FRAMES, frame_w, frame_h, fps, true)
 	return sf
 
 

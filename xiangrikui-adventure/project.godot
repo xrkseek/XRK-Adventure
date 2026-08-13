@@ -20,6 +20,7 @@ config/icon="res://icon.png"
 [autoload]
 
 RunManager="*res://common/run_manager.gd"
+Settings="*res://common/settings_manager.gd"
 
 [display]
 
@@ -30,6 +31,11 @@ window/size/window_height_override=720
 window/stretch/mode="canvas_items"
 window/stretch/aspect="keep"
 window/stretch/scale_mode="integer"
+window/handheld/orientation=4
+
+[input_devices]
+
+pointing/emulate_mouse_from_touch=true
 
 [input]
 

@@ -49,6 +49,7 @@ func start_run() -> void:
 		return
 	if mode == "play" and not _menu_overlay_visible():
 		return
+	get_tree().paused = false
 	rng.randomize()
 	run_seed = rng.randi()
 	rng.seed = run_seed
@@ -78,7 +79,12 @@ func _menu_overlay_visible() -> bool:
 		return false
 	var title = tree.current_scene.get_node_or_null("%TitleUI")
 	var end = tree.current_scene.get_node_or_null("%EndUI")
-	return (title != null and title.visible) or (end != null and end.visible)
+	var sel = tree.current_scene.get_node_or_null("%CharacterSelectUI")
+	return (
+		(title != null and title.visible)
+		or (end != null and end.visible)
+		or (sel != null and sel.visible)
+	)
 
 func advance_after_upgrade() -> void:
 	room_num += 1

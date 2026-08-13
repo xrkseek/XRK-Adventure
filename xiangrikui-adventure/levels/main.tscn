@@ -1,11 +1,13 @@
-[gd_scene load_steps=6 format=3]
+[gd_scene load_steps=9 format=3]
 
 [ext_resource type="Script" path="res://levels/main.gd" id="1"]
 [ext_resource type="Script" path="res://ui/hud.gd" id="2"]
 [ext_resource type="Script" path="res://ui/title_ui.gd" id="3"]
 [ext_resource type="Script" path="res://ui/upgrade_ui.gd" id="4"]
 [ext_resource type="Script" path="res://ui/end_ui.gd" id="5"]
-[ext_resource type="Texture2D" path="res://assets/ui/emblem.png" id="6"]
+[ext_resource type="Script" path="res://ui/character_select_ui.gd" id="7"]
+[ext_resource type="Script" path="res://ui/settings_ui.gd" id="8"]
+[ext_resource type="Script" path="res://ui/touch_controls.gd" id="9"]
 
 [node name="Main" type="Node2D"]
 script = ExtResource("1")
@@ -160,35 +162,11 @@ grow_horizontal = 2
 grow_vertical = 2
 color = Color(0.05, 0.08, 0.12, 0.28)
 
-[node name="Emblem" type="TextureRect" parent="TitleLayer/TitleUI"]
-layout_mode = 1
-anchors_preset = 5
-anchor_left = 0.5
-anchor_right = 0.5
-offset_left = -48.0
-offset_top = 70.0
-offset_right = 48.0
-offset_bottom = 166.0
-grow_horizontal = 2
-texture = ExtResource("6")
-expand_mode = 1
-stretch_mode = 5
-
-[node name="TitleLabel" type="Label" parent="TitleLayer/TitleUI"]
+[node name="TitleLogo" type="AnimatedSprite2D" parent="TitleLayer/TitleUI"]
 unique_name_in_owner = true
-layout_mode = 1
-anchors_preset = 5
-anchor_left = 0.5
-anchor_right = 0.5
-offset_left = -220.0
-offset_top = 180.0
-offset_right = 220.0
-offset_bottom = 240.0
-grow_horizontal = 2
-theme_override_colors/font_color = Color(1, 0.84, 0.29, 1)
-theme_override_font_sizes/font_size = 42
-text = "鹿历险记"
-horizontal_alignment = 1
+position = Vector2(640, 210)
+scale = Vector2(1.75, 1.75)
+texture_filter = 0
 
 [node name="Sub" type="Label" parent="TitleLayer/TitleUI"]
 layout_mode = 1
@@ -196,12 +174,13 @@ anchors_preset = 5
 anchor_left = 0.5
 anchor_right = 0.5
 offset_left = -260.0
-offset_top = 245.0
+offset_top = 430.0
 offset_right = 260.0
-offset_bottom = 275.0
+offset_bottom = 460.0
 grow_horizontal = 2
 theme_override_colors/font_color = Color(1, 0.96, 0.84, 0.9)
-text = "横板肉鸽 · 许月珍鹿试玩 · 清房进门"
+theme_override_font_sizes/font_size = 18
+text = "横板肉鸽 · 清房进门"
 horizontal_alignment = 1
 
 [node name="Hint" type="Label" parent="TitleLayer/TitleUI"]
@@ -211,13 +190,13 @@ anchors_preset = 5
 anchor_left = 0.5
 anchor_right = 0.5
 offset_left = -220.0
-offset_top = 320.0
+offset_top = 470.0
 offset_right = 220.0
-offset_bottom = 348.0
+offset_bottom = 498.0
 grow_horizontal = 2
 theme_override_colors/font_color = Color(1, 0.54, 0.24, 1)
 theme_override_font_sizes/font_size = 16
-text = "Enter / 空格 · 或点击按钮"
+text = "Enter / A · 或点按钮"
 horizontal_alignment = 1
 
 [node name="StartButton" type="Button" parent="TitleLayer/TitleUI"]
@@ -226,14 +205,148 @@ layout_mode = 1
 anchors_preset = 5
 anchor_left = 0.5
 anchor_right = 0.5
-offset_left = -90.0
-offset_top = 360.0
-offset_right = 90.0
-offset_bottom = 408.0
+offset_left = -100.0
+offset_top = 500.0
+offset_right = 100.0
+offset_bottom = 548.0
 grow_horizontal = 2
 focus_mode = 2
 theme_override_font_sizes/font_size = 22
 text = "开始历险"
+
+[node name="SettingsButton" type="Button" parent="TitleLayer/TitleUI"]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 5
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -100.0
+offset_top = 556.0
+offset_right = 100.0
+offset_bottom = 596.0
+grow_horizontal = 2
+focus_mode = 2
+theme_override_font_sizes/font_size = 18
+text = "设置"
+
+[node name="QuitButton" type="Button" parent="TitleLayer/TitleUI"]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 5
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -100.0
+offset_top = 604.0
+offset_right = 100.0
+offset_bottom = 644.0
+grow_horizontal = 2
+focus_mode = 2
+theme_override_font_sizes/font_size = 18
+text = "退出"
+
+[node name="CharSelectLayer" type="CanvasLayer" parent="."]
+layer = 10
+
+[node name="CharacterSelectUI" type="Control" parent="CharSelectLayer"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("7")
+
+[node name="DimCS" type="ColorRect" parent="CharSelectLayer/CharacterSelectUI"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+color = Color(0.04, 0.07, 0.1, 0.78)
+
+[node name="CSTitle" type="Label" parent="CharSelectLayer/CharacterSelectUI"]
+layout_mode = 1
+anchors_preset = 5
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -160.0
+offset_top = 48.0
+offset_right = 160.0
+offset_bottom = 92.0
+theme_override_colors/font_color = Color(1, 0.84, 0.29, 1)
+theme_override_font_sizes/font_size = 30
+text = "选择角色"
+horizontal_alignment = 1
+
+[node name="Preview" type="TextureRect" parent="CharSelectLayer/CharacterSelectUI"]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 5
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -96.0
+offset_top = 110.0
+offset_right = 96.0
+offset_bottom = 302.0
+grow_horizontal = 2
+expand_mode = 1
+stretch_mode = 5
+texture_filter = 0
+
+[node name="NameLabel" type="Label" parent="CharSelectLayer/CharacterSelectUI"]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 5
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -200.0
+offset_top = 310.0
+offset_right = 200.0
+offset_bottom = 342.0
+theme_override_colors/font_color = Color(1, 0.96, 0.84, 1)
+theme_override_font_sizes/font_size = 20
+text = "出征：许月珍"
+horizontal_alignment = 1
+
+[node name="Roster" type="HBoxContainer" parent="CharSelectLayer/CharacterSelectUI"]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 5
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -280.0
+offset_top = 360.0
+offset_right = 280.0
+offset_bottom = 420.0
+grow_horizontal = 2
+theme_override_constants/separation = 16
+alignment = 1
+
+[node name="ConfirmButton" type="Button" parent="CharSelectLayer/CharacterSelectUI"]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 5
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -90.0
+offset_top = 460.0
+offset_right = 90.0
+offset_bottom = 508.0
+theme_override_font_sizes/font_size = 22
+text = "确认出征"
+
+[node name="BackButton" type="Button" parent="CharSelectLayer/CharacterSelectUI"]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 5
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -70.0
+offset_top = 520.0
+offset_right = 70.0
+offset_bottom = 560.0
+text = "返回"
 
 [node name="UpgradeLayer" type="CanvasLayer" parent="."]
 layer = 11
@@ -380,3 +493,215 @@ grow_horizontal = 2
 focus_mode = 2
 theme_override_font_sizes/font_size = 20
 text = "再开一局"
+
+[node name="SettingsLayer" type="CanvasLayer" parent="."]
+layer = 50
+process_mode = 3
+
+[node name="SettingsUI" type="Control" parent="SettingsLayer"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+process_mode = 3
+script = ExtResource("8")
+
+[node name="DimS" type="ColorRect" parent="SettingsLayer/SettingsUI"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+color = Color(0.03, 0.05, 0.08, 0.82)
+
+[node name="Panel" type="Panel" parent="SettingsLayer/SettingsUI"]
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -240.0
+offset_top = -280.0
+offset_right = 240.0
+offset_bottom = 280.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="VBox" type="VBoxContainer" parent="SettingsLayer/SettingsUI/Panel"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 24.0
+offset_top = 16.0
+offset_right = -24.0
+offset_bottom = -16.0
+theme_override_constants/separation = 8
+
+[node name="TitleS" type="Label" parent="SettingsLayer/SettingsUI/Panel/VBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.84, 0.29, 1)
+theme_override_font_sizes/font_size = 26
+text = "设置"
+horizontal_alignment = 1
+
+[node name="MasterLabel" type="Label" parent="SettingsLayer/SettingsUI/Panel/VBox"]
+layout_mode = 2
+text = "主音量"
+
+[node name="MasterSlider" type="HSlider" parent="SettingsLayer/SettingsUI/Panel/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+max_value = 1.0
+step = 0.05
+value = 1.0
+
+[node name="SfxLabel" type="Label" parent="SettingsLayer/SettingsUI/Panel/VBox"]
+layout_mode = 2
+text = "音效"
+
+[node name="SfxSlider" type="HSlider" parent="SettingsLayer/SettingsUI/Panel/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+max_value = 1.0
+step = 0.05
+value = 1.0
+
+[node name="MusicLabel" type="Label" parent="SettingsLayer/SettingsUI/Panel/VBox"]
+layout_mode = 2
+text = "音乐"
+
+[node name="MusicSlider" type="HSlider" parent="SettingsLayer/SettingsUI/Panel/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+max_value = 1.0
+step = 0.05
+value = 0.8
+
+[node name="ShakeLabel" type="Label" parent="SettingsLayer/SettingsUI/Panel/VBox"]
+layout_mode = 2
+text = "画面震动"
+
+[node name="ShakeSlider" type="HSlider" parent="SettingsLayer/SettingsUI/Panel/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+max_value = 1.5
+step = 0.05
+value = 1.0
+
+[node name="FullscreenCheck" type="CheckButton" parent="SettingsLayer/SettingsUI/Panel/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "全屏"
+
+[node name="TouchLabel" type="Label" parent="SettingsLayer/SettingsUI/Panel/VBox"]
+layout_mode = 2
+text = "触屏控件"
+
+[node name="TouchOption" type="OptionButton" parent="SettingsLayer/SettingsUI/Panel/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+
+[node name="VibrateCheck" type="CheckButton" parent="SettingsLayer/SettingsUI/Panel/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "触感震动"
+
+[node name="HintLabel" type="Label" parent="SettingsLayer/SettingsUI/Panel/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.96, 0.84, 0.75)
+theme_override_font_sizes/font_size = 12
+text = "手柄 / 触屏说明"
+autowrap_mode = 3
+
+[node name="CloseButton" type="Button" parent="SettingsLayer/SettingsUI/Panel/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "关闭"
+
+[node name="TitleButton" type="Button" parent="SettingsLayer/SettingsUI/Panel/VBox"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 2
+text = "返回标题"
+
+[node name="AppQuitButton" type="Button" parent="SettingsLayer/SettingsUI/Panel/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "退出游戏"
+
+[node name="TouchControls" type="CanvasLayer" parent="."]
+unique_name_in_owner = true
+layer = 40
+script = ExtResource("9")
+
+[node name="TouchRoot" type="Control" parent="TouchControls"]
+unique_name_in_owner = true
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="StickBase" type="Panel" parent="TouchControls/TouchRoot"]
+unique_name_in_owner = true
+modulate = Color(1, 1, 1, 0.45)
+layout_mode = 1
+anchors_preset = 2
+anchor_top = 1.0
+anchor_bottom = 1.0
+offset_left = 48.0
+offset_top = -220.0
+offset_right = 208.0
+offset_bottom = -60.0
+grow_vertical = 0
+
+[node name="StickKnob" type="Panel" parent="TouchControls/TouchRoot/StickBase"]
+unique_name_in_owner = true
+modulate = Color(1, 0.9, 0.4, 0.85)
+layout_mode = 0
+offset_left = 48.0
+offset_top = 48.0
+offset_right = 112.0
+offset_bottom = 112.0
+
+[node name="JumpTouch" type="Button" parent="TouchControls/TouchRoot"]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 3
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -280.0
+offset_top = -150.0
+offset_right = -160.0
+offset_bottom = -50.0
+grow_horizontal = 0
+grow_vertical = 0
+theme_override_font_sizes/font_size = 22
+text = "跳"
+
+[node name="ShootTouch" type="Button" parent="TouchControls/TouchRoot"]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 3
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -150.0
+offset_top = -200.0
+offset_right = -30.0
+offset_bottom = -80.0
+grow_horizontal = 0
+grow_vertical = 0
+theme_override_font_sizes/font_size = 22
+text = "射"

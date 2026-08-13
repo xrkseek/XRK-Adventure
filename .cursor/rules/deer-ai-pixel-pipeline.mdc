@@ -50,11 +50,12 @@ tools/
 | 深色衣/黑裤/黑发 | 热品红 `#FF00FF` | 纯黑幕 |
 | 绿植多 | 品红或黑 | 绿色幕 |
 
-1. **只允许边缘洪水抠幕**（含深灰格线键）；禁止全图宽粉/宽黑扫描。
+1. **只允许边缘洪水抠幕**（含深灰格线键 + 深紫封边 + 中段品红 AA）；禁止全图宽粉/宽黑扫描。
 2. **切格后必须 `matte()`**，禁止只 crop。
 3. **量化垫色**（`pixel_cook.hard_pixel`）：粉体→`pad=black`；深色衣角色→`pad=green`；**禁止品红垫**。
 4. **禁截断**：生图每格 ≥约 8% margin；装格用 `fit_contain` / 角色脚底用 `fit_bottom_fixed`；贴边 WARN → 重生。
 5. 空帧 / 近空帧必须 WARN。
+6. **品红边教训**：`is_screen_key` 必须覆盖中段 AA（如 `175,79,146`）；`fringe_clean` 只杀贴透明边的溢色；`strip_orphan_screen` 清封闭粉岛。
 
 ## 0.3 生图强约束
 
@@ -97,7 +98,7 @@ cutout → assets/characters/<id>/refs/cutout.png
 ## 2. 道具 / 世界
 
 ```bash
-python tools/process_ai_pixel.py --what skies|door|tiles|decor|tree|flyer|enemies|world|dice|title
+python tools/process_ai_pixel.py --what skies|door|tiles|decor|tree|flyer|enemies|world|dice|title|title_logo
 ```
 
 | 命令 | 产出 |
@@ -106,6 +107,7 @@ python tools/process_ai_pixel.py --what skies|door|tiles|decor|tree|flyer|enemie
 | tree / flyer | 单资产精细抠图 |
 | tiles | 满幅 ground/edge/platform |
 | dice | `props/dice.png` |
+| title_logo | `ui/title_logo_sheet.png`（4 帧标题动画） |
 | flyer/enemies | `enemies/anim/*_sheet.png` |
 
 ## 3. 关卡槽位（GameConstants）

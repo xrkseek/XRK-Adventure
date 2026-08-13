@@ -259,30 +259,228 @@ def process_dice() -> None:
 
 
 def process_title() -> None:
-    sync_raw("title_bg_ai.png")
-    bg_pixel(RAW / "title_bg_ai.png", BG / "title.png", 480, 270, colors=48)
+    """标题背景 2 帧横条（干净向日葵田，无变形树）。"""
+    sync_raw("title_bg_anim_ai.png")
+    _process_bg_anim_sheet(
+        RAW / "title_bg_anim_ai.png",
+        BG / "title_sheet.png",
+        BG / "title.png",
+        480,
+        270,
+        colors=48,
+        key_magenta=False,
+        split="vertical",
+    )
+
+
+def process_title_logo() -> None:
+    """鹿历险记标题 Logo 横条动画（向日葵装饰，不含角色名）。
+
+    抠图走统一 pixel_matte（含中段品红 AA / 深紫封边）；硬像素后再 fringe 一次。
+    """
+    sync_raw("title_logo_anim_ai.png")
+    src = RAW / "title_logo_anim_ai.png"
+    ui = ROOT / "assets" / "ui"
+    ui.mkdir(parents=True, exist_ok=True)
+    img = Image.open(src).convert("RGBA")
+    n = 4
+    cw = img.width // n
+    parts: list[Image.Image] = []
+    for i in range(n):
+        cell = img.crop((i * cw, 0, (i + 1) * cw, img.height))
+        cell = fringe(matte(cell, blob=True))
+        cell = trim(cell, pad=2)
+        if cell.width < 8 or cell.height < 8:
+            print(f"  title_logo frame {i} empty after matte")
+            cell = Image.new("RGBA", (64, 32), (0, 0, 0, 0))
+        else:
+            assert_margin(cell, name=f"title_logo[{i}]")
+        parts.append(cell)
+        print(f"  title_logo[{i}] trimmed {cell.size}")
+
+    mw = max(p.width for p in parts)
+    mh = max(p.height for p in parts)
+    tw = max(280, min(440, mw + 8))
+    th = max(120, min(220, mh + 8))
+    sheet = Image.new("RGBA", (tw * n, th), (0, 0, 0, 0))
+    for i, part in enumerate(parts):
+        scale = min((tw - 6) / part.width, (th - 6) / part.height)
+        nw = max(1, round(part.width * scale))
+        nh = max(1, round(part.height * scale))
+        pix = hard_pixel(part, nw, nh, colors=56, pad="green", rematte=True)
+        pix = fringe(pix)
+        canvas = Image.new("RGBA", (tw, th), (0, 0, 0, 0))
+        canvas.paste(pix, ((tw - nw) // 2, (th - nh) // 2), pix)
+        sheet.paste(canvas, (i * tw, 0), canvas)
+    final = sheet.resize((tw * n * 2, th * 2), Image.Resampling.NEAREST)
+    out = ui / "title_logo_sheet.png"
+    final.save(out)
+    final.crop((0, 0, tw * 2, th * 2)).save(ui / "title_logo.png")
+    print(f"  {out.relative_to(ROOT)} {final.size} cell={tw}x{th}@1x → {tw*2}x{th*2}@2x frames={n}")
+    print(f"  UPDATE SpriteFactory TITLE_LOGO_W/H = {tw*2}, {th*2}")
 
 
 def process_skies() -> None:
-    """Sky = sky-only full bleed; mid = hills with magenta/transparent sky."""
-    sync_raw("sky_ai.png")
-    sync_raw("mid_ai.png")
-    # Optional dusk/creek AI; else tint from day sky (same composition).
-    if (CURSOR_ASSETS / "sky_dusk_ai.png").is_file() or (RAW / "sky_dusk_ai.png").is_file():
-        sync_raw("sky_dusk_ai.png")
+    """Sky / mid 均为 ≥2 帧；mid 只留山丘，禁止变形树当中景。"""
+    sync_raw("sky_anim_ai.png")
+    sync_raw("mid_anim_ai.png")
+    _process_bg_anim_sheet(
+        RAW / "sky_anim_ai.png",
+        BG / "sky_sheet.png",
+        BG / "sky.png",
+        480,
+        180,
+        colors=40,
+        key_magenta=False,
+        split="horizontal",
+    )
+    # dusk / creek：整条 sheet 着色
+    _tint_sheet(BG / "sky_sheet.png", BG / "sky_dusk_sheet.png", (1.15, 0.85, 0.72))
+    _tint_sheet(BG / "sky_sheet.png", BG / "sky_creek_sheet.png", (0.88, 0.95, 1.08))
+    # 单帧回退
+    Image.open(BG / "sky_dusk_sheet.png").crop((0, 0, 960, 360)).save(BG / "sky_dusk.png")
+    Image.open(BG / "sky_creek_sheet.png").crop((0, 0, 960, 360)).save(BG / "sky_creek.png")
+    _process_bg_anim_sheet(
+        RAW / "mid_anim_ai.png",
+        BG / "mid_sheet.png",
+        BG / "mid.png",
+        480,
+        140,
+        colors=36,
+        key_magenta=True,
+        bottom_align=True,
+        split="vertical",
+    )
+
+
+def _split_anim_frames(
+    img: Image.Image,
+    n: int = 2,
+    *,
+    prefer: str = "auto",
+) -> list[Image.Image]:
+    """按中缝色差判断竖排/横排；prefer 可强制 vertical/horizontal。"""
+    img = img.convert("RGBA")
+    rgb = img.convert("RGB")
+    w, h = rgb.size
+    px = rgb.load()
+
+    def _band_diff(horizontal_seam: bool) -> float:
+        acc = 0.0
+        cnt = 0
+        if horizontal_seam:
+            y = h // 2
+            for x in range(0, w, 2):
+                r1, g1, b1 = px[x, max(0, y - 2)]
+                r2, g2, b2 = px[x, min(h - 1, y + 1)]
+                acc += abs(r1 - r2) + abs(g1 - g2) + abs(b1 - b2)
+                cnt += 1
+        else:
+            x = w // 2
+            for y in range(0, h, 2):
+                r1, g1, b1 = px[max(0, x - 2), y]
+                r2, g2, b2 = px[min(w - 1, x + 1), y]
+                acc += abs(r1 - r2) + abs(g1 - g2) + abs(b1 - b2)
+                cnt += 1
+        return acc / max(1, cnt)
+
+    if prefer == "vertical":
+        use_vert = True
+        print("  split=vertical (forced)")
+    elif prefer == "horizontal":
+        use_vert = False
+        print("  split=horizontal (forced)")
     else:
-        _tint_sky(RAW / "sky_ai.png", RAW / "sky_dusk_ai.png", (1.15, 0.85, 0.72))
-        print("  tinted sky_dusk_ai from sky_ai")
-    if (CURSOR_ASSETS / "sky_creek_ai.png").is_file() or (RAW / "sky_creek_ai.png").is_file():
-        sync_raw("sky_creek_ai.png")
-    else:
-        _tint_sky(RAW / "sky_ai.png", RAW / "sky_creek_ai.png", (0.88, 0.95, 1.08))
-        print("  tinted sky_creek_ai from sky_ai")
-    # GameConstants VIEW 1280×720 → sky 960×360；mid 用更高条带避免山丘被压扁
-    bg_pixel(RAW / "sky_ai.png", BG / "sky.png", 480, 180, colors=40)
-    bg_pixel(RAW / "sky_dusk_ai.png", BG / "sky_dusk.png", 480, 180, colors=40)
-    bg_pixel(RAW / "sky_creek_ai.png", BG / "sky_creek.png", 480, 180, colors=40)
-    bg_pixel(RAW / "mid_ai.png", BG / "mid.png", 480, 120, colors=36, key_magenta=True)
+        h_seam = _band_diff(True)
+        v_seam = _band_diff(False)
+        use_vert = h_seam >= v_seam
+        print(f"  seam H={h_seam:.1f} V={v_seam:.1f} → {'vertical' if use_vert else 'horizontal'}")
+    if use_vert:
+        ch = h // n
+        return [img.crop((0, i * ch, w, (i + 1) * ch)) for i in range(n)]
+    cw = w // n
+    return [img.crop((i * cw, 0, (i + 1) * cw, h)) for i in range(n)]
+
+
+def _crop_to_aspect(img: Image.Image, aspect: float) -> Image.Image:
+    """中心裁到目标比例，不拉伸。"""
+    img = img.convert("RGBA")
+    w, h = img.size
+    if w < 2 or h < 2:
+        return img
+    cur = w / h
+    if abs(cur - aspect) < 0.01:
+        return img
+    if cur > aspect:
+        nw = max(1, int(round(h * aspect)))
+        x0 = (w - nw) // 2
+        return img.crop((x0, 0, x0 + nw, h))
+    nh = max(1, int(round(w / aspect)))
+    y0 = (h - nh) // 2
+    return img.crop((0, y0, w, y0 + nh))
+
+
+def _process_bg_anim_sheet(
+    src: Path,
+    sheet_out: Path,
+    frame0_out: Path,
+    tw: int,
+    th: int,
+    *,
+    colors: int,
+    key_magenta: bool,
+    bottom_align: bool = False,
+    split: str = "auto",
+) -> None:
+    """等比：先中心裁到 tw:th，再 BOX 缩小；禁止非等比拉伸变形。"""
+    parts = _split_anim_frames(Image.open(src), 2, prefer=split)
+    n = len(parts)
+    aspect = tw / th
+    sheet = Image.new("RGBA", (tw * n, th), (0, 0, 0, 0))
+    for i, part in enumerate(parts):
+        if key_magenta:
+            part = fringe(matte(part, blob=False))
+            part = trim(part, pad=2)
+            if part.width < 4 or part.height < 4:
+                print(f"  empty bg frame {i}")
+                continue
+            # 透明底山丘：等比塞进格子，不拉扁
+            scale = min(tw / part.width, th / part.height)
+            nw = max(1, round(part.width * scale))
+            nh = max(1, round(part.height * scale))
+            pix = hard_pixel(part, nw, nh, colors=colors, pad="green", rematte=True)
+            pix = fringe(pix)
+            canvas = Image.new("RGBA", (tw, th), (0, 0, 0, 0))
+            y = th - nh if bottom_align else (th - nh) // 2
+            canvas.paste(pix, ((tw - nw) // 2, y), pix)
+            sheet.paste(canvas, (i * tw, 0), canvas)
+            print(f"  frame{i} src={part.size} -> fit {nw}x{nh} in {tw}x{th}")
+        else:
+            part = _crop_to_aspect(part, aspect)
+            print(f"  frame{i} cropped={part.size} -> {tw}x{th} (aspect-kept)")
+            small = part.resize((tw, th), Image.Resampling.BOX)
+            q = small.convert("RGB").quantize(
+                colors=colors, method=Image.Quantize.MAXCOVERAGE, dither=Image.Dither.NONE
+            ).convert("RGBA")
+            sheet.paste(q, (i * tw, 0))
+    final = sheet.resize((tw * n * 2, th * 2), Image.Resampling.NEAREST)
+    sheet_out.parent.mkdir(parents=True, exist_ok=True)
+    final.save(sheet_out)
+    final.crop((0, 0, tw * 2, th * 2)).save(frame0_out)
+    print(f"  {sheet_out.relative_to(ROOT)} {final.size} frames={n}")
+
+
+def _tint_sheet(src: Path, out: Path, mul: tuple[float, float, float]) -> None:
+    img = Image.open(src).convert("RGBA")
+    px = img.load()
+    mr, mg, mb = mul
+    for y in range(img.height):
+        for x in range(img.width):
+            r, g, b, a = px[x, y]
+            px[x, y] = (min(255, int(r * mr)), min(255, int(g * mg)), min(255, int(b * mb)), a)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    img.save(out)
+    print(f"  tinted {out.relative_to(ROOT)}")
 
 
 def process_door() -> None:
@@ -412,6 +610,8 @@ def process_all_world() -> None:
         process_dice()
     if (CURSOR_ASSETS / "title_bg_ai.png").is_file() or (RAW / "title_bg_ai.png").is_file():
         process_title()
+    if (CURSOR_ASSETS / "title_logo_anim_ai.png").is_file() or (RAW / "title_logo_anim_ai.png").is_file():
+        process_title_logo()
 
 
 def main() -> None:
@@ -419,13 +619,28 @@ def main() -> None:
     ap.add_argument(
         "--what",
         default="world",
-        choices=["dice", "title", "skies", "door", "tiles", "decor", "tree", "flyer", "enemies", "world", "all"],
+        choices=[
+            "dice",
+            "title",
+            "title_logo",
+            "skies",
+            "door",
+            "tiles",
+            "decor",
+            "tree",
+            "flyer",
+            "enemies",
+            "world",
+            "all",
+        ],
     )
     args = ap.parse_args()
     if args.what == "dice":
         process_dice()
     elif args.what == "title":
         process_title()
+    elif args.what == "title_logo":
+        process_title_logo()
     elif args.what == "skies":
         process_skies()
     elif args.what == "door":
