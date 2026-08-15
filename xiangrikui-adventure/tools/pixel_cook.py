@@ -10,7 +10,7 @@ from pathlib import Path
 
 from PIL import Image
 
-from pixel_matte import fringe_clean, matte, is_screen_key
+from pixel_matte import despill_chroma_edges, fringe_clean, matte, matte_auto, is_screen_key
 
 # 量化垫色预设：透明区填充色，须与主体反差
 PAD_RGB: dict[str, tuple[int, int, int]] = {
@@ -68,6 +68,7 @@ def hard_pixel(
     *,
     pad: str | tuple[int, int, int] = "black",
     rematte: bool = True,
+    alpha_cut: int = 120,
 ) -> Image.Image:
     """BOX → 硬化 alpha → 反差垫色量化无抖动 → 丢垫色/品红残留 → NEAREST。"""
     pad_rgb = resolve_pad(pad)
@@ -76,7 +77,7 @@ def hard_pixel(
     for y in range(mid.height):
         for x in range(mid.width):
             r, g, b, a = px[x, y]
-            px[x, y] = (r, g, b, 255 if a >= 120 else 0)
+            px[x, y] = (r, g, b, 255 if a >= alpha_cut else 0)
     flat = Image.new("RGBA", mid.size, (*pad_rgb, 255))
     flat.paste(mid, mask=mid.split()[3])
     q = (
@@ -94,36 +95,93 @@ def hard_pixel(
                 qpx[x, y] = (r, g, b, 255)
     out = q.resize((tw, th), Image.Resampling.NEAREST)
     if rematte:
-        return matte(out, blob=False)
-    return fringe_clean(out)
+        # 绿垫量化后剥绿晕；品红幕角色用 #FF00FF（由调用方 pad 推断）
+        fill = "#00FF00" if pad_rgb == (0, 255, 0) else (
+            "#FF00FF" if pad_rgb == (255, 0, 255) else None
+        )
+        out = matte(out, blob=False, fill_hex=fill)
+        if fill:
+            out = despill_chroma_edges(out, fill)
+        return out
+    out = fringe_clean(out, passes=1)
+    if pad_rgb == (0, 255, 0):
+        out = despill_chroma_edges(out, "#00FF00")
+    return out
 
 
 def fit_bottom_fixed(img: Image.Image, cell: tuple[int, int]) -> Image.Image:
-    """脚底对齐画格底边（站立角色）。"""
+    """脚底对齐画格底边。超高/超宽时 NEAREST 等比缩小装入，禁止裁头顶。"""
     tw, th = cell
     canvas = Image.new("RGBA", cell, (0, 0, 0, 0))
     iw, ih = img.size
-    if iw > tw:
-        x0 = (iw - tw) // 2
-        img = img.crop((x0, 0, x0 + tw, ih))
-        iw = tw
-    if ih > th:
-        y0 = ih - th
-        img = img.crop((0, y0, iw, y0 + th))
-        ih = th
+    if iw < 1 or ih < 1:
+        return canvas
+    if iw > tw or ih > th:
+        s = min(tw / float(iw), th / float(ih))
+        nw = max(1, int(round(iw * s)))
+        nh = max(1, int(round(ih * s)))
+        img = img.resize((nw, nh), Image.Resampling.NEAREST)
+        iw, ih = nw, nh
     canvas.paste(img, ((tw - iw) // 2, th - ih), img)
     return canvas
 
 
-def split_frames(img: Image.Image, n: int) -> list[Image.Image]:
-    """横条或近方阵网格切帧（不抠图）。"""
+def fit_cell_preserve_frac(img: Image.Image, cell: tuple[int, int]) -> Image.Image:
+    """把「已等格、已抠幕、未 trim」的源格装进固定 cell，保留内容相对位置（跳顶点不坠底）。
+
+    源图必须是虚拟等格整格（含透明留白）。等比缩小装入后按 bbox 中心的归一化坐标粘贴。
+    """
+    tw, th = cell
+    canvas = Image.new("RGBA", cell, (0, 0, 0, 0))
     img = img.convert("RGBA")
-    if img.width >= img.height * 2:
+    sw, sh = img.size
+    if sw < 1 or sh < 1:
+        return canvas
+    bb = content_bbox(img)
+    if not bb:
+        return canvas
+    # 整格等比装入目标格（虚拟边框 = 等宽等高）
+    s = min(tw / float(sw), th / float(sh))
+    nw = max(1, int(round(sw * s)))
+    nh = max(1, int(round(sh * s)))
+    scaled = img.resize((nw, nh), Image.Resampling.NEAREST)
+    # 源格内内容中心 → 目标格对应位置
+    cx = (bb[0] + bb[2]) * 0.5 / sw
+    cy = (bb[1] + bb[3]) * 0.5 / sh
+    sbb = content_bbox(scaled)
+    if not sbb:
+        return canvas
+    scw = sbb[2] - sbb[0]
+    sch = sbb[3] - sbb[1]
+    px = int(round(cx * tw - scw * 0.5)) - sbb[0]
+    py = int(round(cy * th - sch * 0.5)) - sbb[1]
+    px = max(min(px, tw - nw), min(0, tw - nw))
+    py = max(min(py, th - nh), min(0, th - nh))
+    # 若整格已缩进目标内，直接居中整格更稳（等宽等高）
+    if nw <= tw and nh <= th:
+        canvas.paste(scaled, ((tw - nw) // 2, (th - nh) // 2), scaled)
+    else:
+        canvas.paste(scaled, (px, py), scaled)
+    return canvas
+
+
+def split_frames(img: Image.Image, n: int) -> list[Image.Image]:
+    """横条或近方阵网格切帧（不抠图）。保证等宽：用 width//n，余数丢右侧。
+
+    - idle 等 **完全平方** 帧数（16=4×4）→ 方阵（即使整图宽≥高）。
+    - walk/jump 等非平方帧数 → 宽≥高时横条（含 8×瘦高格拼成 1536×1024）。
+    """
+    img = img.convert("RGBA")
+    root = int(round(n**0.5))
+    square = root * root == n and root >= 2
+    if (not square) and img.width >= img.height:
         cw = img.width // n
-        return [img.crop((i * cw, 0, (i + 1) * cw, img.height)) for i in range(n)]
-    cols = int(round(n**0.5))
-    while cols > 1 and n % cols:
-        cols -= 1
+        ch = img.height
+        return [img.crop((i * cw, 0, (i + 1) * cw, ch)) for i in range(n)]
+    cols = root if square else int(round(n**0.5))
+    if not square:
+        while cols > 1 and n % cols:
+            cols -= 1
     rows = n // max(1, cols)
     cw, ch = img.width // cols, img.height // rows
     crops: list[Image.Image] = []
@@ -133,14 +191,34 @@ def split_frames(img: Image.Image, n: int) -> list[Image.Image]:
     return crops[:n]
 
 
-def matte_frames(crops: list[Image.Image], *, empty_h: int = 8) -> list[Image.Image]:
-    """每格独立 matte + trim；空帧占位。"""
+def matte_frames(
+    crops: list[Image.Image],
+    *,
+    empty_h: int = 8,
+    fill_hex: str | None = None,
+    mode: str = "flood",
+    trim: bool = True,
+) -> list[Image.Image]:
+    """每格独立 matte。trim=False 时保持等格尺寸（虚拟边框），只把幕变透明。"""
     parts: list[Image.Image] = []
     for part in crops:
-        part = trim_alpha(matte(part, blob=True))
-        if part.width < 2 or part.height < 2:
-            part = Image.new("RGBA", (8, empty_h), (0, 0, 0, 0))
-        parts.append(part)
+        m = matte_auto(part, mode=mode, blob=True, fill_hex=fill_hex)
+        if trim:
+            m = trim_alpha(m)
+            if m.width < 2 or m.height < 2:
+                m = Image.new("RGBA", (8, empty_h), (0, 0, 0, 0))
+        else:
+            # 原地抠：尺寸与源格完全一致
+            if m.size != part.size:
+                canvas = Image.new("RGBA", part.size, (0, 0, 0, 0))
+                canvas.paste(m, (0, 0), m)
+                m = canvas
+            solid = sum(
+                1 for y in range(m.height) for x in range(m.width) if m.getpixel((x, y))[3] > 128
+            )
+            if solid < 80:
+                m = Image.new("RGBA", part.size, (0, 0, 0, 0))
+        parts.append(m)
     return parts
 
 

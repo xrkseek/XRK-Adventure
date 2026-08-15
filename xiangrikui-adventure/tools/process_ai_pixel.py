@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import shutil
 import sys
 from pathlib import Path
@@ -23,6 +24,17 @@ TILES = ROOT / "assets" / "tiles"
 DECOR = ROOT / "assets" / "decor"
 REF = ROOT / "assets" / "refs"
 CURSOR_ASSETS = Path.home() / ".cursor" / "projects" / "c-Users-sunflowerss-Desktop-XRKgrocery-XRK-Adventure" / "assets"
+GEN_SPEC_PATH = Path(__file__).resolve().parent / "gen_spec.json"
+
+
+def load_gen_spec() -> dict:
+    return json.loads(GEN_SPEC_PATH.read_text(encoding="utf-8"))
+
+
+def gen_spec() -> dict:
+    if not hasattr(gen_spec, "_cache"):
+        gen_spec._cache = load_gen_spec()  # type: ignore[attr-defined]
+    return gen_spec._cache  # type: ignore[attr-defined]
 
 
 def sync_raw(name: str) -> Path:
@@ -34,6 +46,15 @@ def sync_raw(name: str) -> Path:
     if not dst.is_file():
         raise SystemExit(f"Missing AI raw: {dst} (and {src})")
     return dst
+
+
+def try_sync_raw(name: str) -> Path | None:
+    RAW.mkdir(parents=True, exist_ok=True)
+    dst = RAW / name
+    src = CURSOR_ASSETS / name
+    if src.is_file():
+        shutil.copy2(src, dst)
+    return dst if dst.is_file() else None
 
 
 def chroma(img: Image.Image, kill_black: bool = False) -> Image.Image:
@@ -148,10 +169,14 @@ def _tint_sky(src: Path, out_raw: Path, mul: tuple[float, float, float]) -> None
 
 
 def make_scene_tiles() -> None:
-    """Full-bleed tiles matching GameConstants: TILE=32, PLAT_TEX=96×28 @2×."""
-    from PIL import ImageDraw
+    """通用兜底 + 各主题满幅硬像素 tiles（禁止 AI 抠图残留）。"""
+    _write_tile_set(TILES, _TILE_PALETTES["meadow"], also_cloud=True)
+    for sid, pal in _TILE_PALETTES.items():
+        _write_tile_set(TILES / sid, pal, also_cloud=False)
 
-    pal = {
+
+_TILE_PALETTES: dict[str, dict[str, tuple[int, int, int, int]]] = {
+    "meadow": {
         "grass": (90, 168, 78, 255),
         "grass_l": (120, 196, 96, 255),
         "grass_d": (62, 128, 58, 255),
@@ -162,7 +187,70 @@ def make_scene_tiles() -> None:
         "wood": (168, 118, 70, 255),
         "wood_d": (128, 86, 50, 255),
         "wood_l": (198, 150, 96, 255),
-    }
+        "accent": (230, 210, 90, 255),
+    },
+    "orchard": {
+        "grass": (78, 148, 72, 255),
+        "grass_l": (110, 178, 90, 255),
+        "grass_d": (52, 112, 54, 255),
+        "soil": (148, 98, 62, 255),
+        "soil_d": (112, 72, 44, 255),
+        "soil_dd": (84, 52, 32, 255),
+        "soil_l": (172, 122, 78, 255),
+        "wood": (158, 108, 64, 255),
+        "wood_d": (118, 78, 46, 255),
+        "wood_l": (188, 140, 88, 255),
+        "accent": (210, 70, 64, 255),  # 落果红
+    },
+    "creek": {
+        "grass": (72, 140, 110, 255),
+        "grass_l": (96, 168, 132, 255),
+        "grass_d": (48, 108, 88, 255),
+        "soil": (110, 96, 78, 255),
+        "soil_d": (78, 72, 64, 255),
+        "soil_dd": (54, 52, 50, 255),
+        "soil_l": (140, 132, 118, 255),
+        "wood": (120, 128, 132, 255),  # 石台
+        "wood_d": (86, 92, 98, 255),
+        "wood_l": (158, 164, 168, 255),
+        "accent": (64, 150, 140, 255),
+    },
+    "dusk": {
+        "grass": (168, 110, 58, 255),
+        "grass_l": (210, 140, 70, 255),
+        "grass_d": (128, 72, 40, 255),
+        "soil": (132, 78, 52, 255),
+        "soil_d": (98, 54, 36, 255),
+        "soil_dd": (72, 40, 28, 255),
+        "soil_l": (160, 100, 68, 255),
+        "wood": (120, 78, 52, 255),
+        "wood_d": (88, 54, 36, 255),
+        "wood_l": (160, 108, 72, 255),
+        "accent": (220, 90, 48, 255),  # 枫叶
+    },
+    "cliff": {
+        "grass": (96, 120, 88, 255),
+        "grass_l": (124, 148, 108, 255),
+        "grass_d": (68, 92, 70, 255),
+        "soil": (118, 112, 108, 255),
+        "soil_d": (88, 84, 82, 255),
+        "soil_dd": (58, 56, 56, 255),
+        "soil_l": (150, 146, 140, 255),
+        "wood": (130, 128, 126, 255),
+        "wood_d": (96, 94, 92, 255),
+        "wood_l": (168, 166, 162, 255),
+        "accent": (90, 140, 100, 255),
+    },
+}
+
+
+def _write_tile_set(
+    out_dir: Path,
+    pal: dict[str, tuple[int, int, int, int]],
+    *,
+    also_cloud: bool,
+) -> None:
+    from PIL import ImageDraw
 
     def new(w: int, h: int) -> Image.Image:
         return Image.new("RGBA", (w, h), (0, 0, 0, 0))
@@ -174,7 +262,9 @@ def make_scene_tiles() -> None:
         if 0 <= x < im.width and 0 <= y < im.height:
             im.putpixel((x, y), c)
 
-    # ground 16×16 @1× → 32×32 (TILE display width)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    # ground 16×16 @1× → 32×32
     g = new(16, 16)
     rect(g, 0, 0, 16, 16, pal["soil"])
     rect(g, 0, 4, 16, 12, pal["soil_d"])
@@ -187,23 +277,25 @@ def make_scene_tiles() -> None:
     for x in range(0, 16, 3):
         put(g, x, 0, pal["grass_d"])
         put(g, x + 1, 1, pal["grass_l"])
+    if "accent" in pal:
+        put(g, 4, 1, pal["accent"])
+        put(g, 11, 0, pal["accent"])
     g2 = g.resize((32, 32), Image.Resampling.NEAREST)
-    TILES.mkdir(parents=True, exist_ok=True)
-    g2.save(TILES / "ground.png")
-    print(f"  tiles/ground.png {g2.size} (TILE=32)")
+    g2.save(out_dir / "ground.png")
+    print(f"  {out_dir.relative_to(ROOT)}/ground.png {g2.size}")
 
-    # grass edge 16×5 → 32×10 (sits on ground lip)
     edge = new(16, 5)
     rect(edge, 0, 2, 16, 3, pal["soil"])
     rect(edge, 0, 0, 16, 3, pal["grass"])
     for x in (1, 4, 7, 10, 13):
         put(edge, x, 0, pal["grass_l"])
         put(edge, x + 1, 1, pal["grass_d"])
+    if "accent" in pal:
+        put(edge, 6, 0, pal["accent"])
     e2 = edge.resize((32, 10), Image.Resampling.NEAREST)
-    e2.save(TILES / "grass_edge.png")
-    print(f"  tiles/grass_edge.png {e2.size}")
+    e2.save(out_dir / "grass_edge.png")
+    print(f"  {out_dir.relative_to(ROOT)}/grass_edge.png {e2.size}")
 
-    # platform 48×14 → 96×28 = PLAT_TEX_W/H (full bleed, no empty margins)
     plat = new(48, 14)
     rect(plat, 0, 0, 48, 14, pal["wood_d"])
     rect(plat, 0, 0, 48, 11, pal["wood"])
@@ -215,26 +307,29 @@ def make_scene_tiles() -> None:
     for x in (6, 20, 34):
         put(plat, x, 0, pal["grass_l"])
         put(plat, x + 1, 0, pal["grass"])
+    if "accent" in pal:
+        put(plat, 10, 0, pal["accent"])
+        put(plat, 28, 1, pal["accent"])
     p2 = plat.resize((96, 28), Image.Resampling.NEAREST)
-    p2.save(TILES / "platform.png")
-    print(f"  tiles/platform.png {p2.size} (PLAT_TEX)")
+    p2.save(out_dir / "platform.png")
+    print(f"  {out_dir.relative_to(ROOT)}/platform.png {p2.size}")
 
-    # cloud 48×20 → 96×40 (soft cutout, no black box)
-    cloud = new(48, 20)
-    for cx, cy, rw, rh in ((10, 10, 14, 10), (22, 8, 18, 12), (34, 11, 14, 9), (16, 14, 12, 8)):
-        ImageDraw.Draw(cloud).ellipse(
-            [cx - rw // 2, cy - rh // 2, cx + rw // 2, cy + rh // 2],
-            fill=(248, 250, 255, 255),
-        )
-    for cx, cy, rw, rh in ((12, 14, 10, 6), (28, 15, 12, 6)):
-        ImageDraw.Draw(cloud).ellipse(
-            [cx - rw // 2, cy - rh // 2, cx + rw // 2, cy + rh // 2],
-            fill=(210, 222, 235, 255),
-        )
-    c2 = cloud.resize((96, 40), Image.Resampling.NEAREST)
-    DECOR.mkdir(parents=True, exist_ok=True)
-    c2.save(DECOR / "cloud.png")
-    print(f"  decor/cloud.png {c2.size}")
+    if also_cloud:
+        cloud = new(48, 20)
+        for cx, cy, rw, rh in ((10, 10, 14, 10), (22, 8, 18, 12), (34, 11, 14, 9), (16, 14, 12, 8)):
+            ImageDraw.Draw(cloud).ellipse(
+                [cx - rw // 2, cy - rh // 2, cx + rw // 2, cy + rh // 2],
+                fill=(248, 250, 255, 255),
+            )
+        for cx, cy, rw, rh in ((12, 14, 10, 6), (28, 15, 12, 6)):
+            ImageDraw.Draw(cloud).ellipse(
+                [cx - rw // 2, cy - rh // 2, cx + rw // 2, cy + rh // 2],
+                fill=(210, 222, 235, 255),
+            )
+        c2 = cloud.resize((96, 40), Image.Resampling.NEAREST)
+        DECOR.mkdir(parents=True, exist_ok=True)
+        c2.save(DECOR / "cloud.png")
+        print(f"  decor/cloud.png {c2.size}")
 
 
 def cutout_prop(src: Path, out: Path, tw: int, th: int, colors: int = 48, px: int = 2) -> None:
@@ -259,18 +354,80 @@ def process_dice() -> None:
 
 
 def process_title() -> None:
-    """标题背景 2 帧横条（干净向日葵田，无变形树）。"""
-    sync_raw("title_bg_anim_ai.png")
+    """标题场景 scene_title：上下双帧微动超宽景。"""
+    process_scene("title")
+
+
+# 关卡/标题场景真源：id → 显示名（尺寸见 tools/gen_spec.json）
+def _scene_names() -> dict[str, str]:
+    return dict(gen_spec()["scene"]["names"])
+
+
+SCENE_SPECS: dict[str, str] = {}  # filled lazily via _scene_names()
+
+
+def _scene_raw_candidates(scene_id: str) -> list[str]:
+    """新名优先，旧名仅做迁移兼容（不把云海误挂到草地）。"""
+    names = [f"scene_{scene_id}_ai.png"]
+    legacy = {
+        "title": ["title_ai.png", "title_bg_anim_ai.png", "title_bg_ai.png"],
+        "creek": ["sky_creek_ai.png", "sky_creek_anim_ai.png"],
+        "dusk": ["sky_dusk_ai.png", "sky_dusk_anim_ai.png"],
+    }
+    names.extend(legacy.get(scene_id, []))
+    return names
+
+
+def process_scene(scene_id: str) -> None:
+    specs = _scene_names()
+    if scene_id not in specs:
+        raise SystemExit(f"unknown scene id: {scene_id} (want {list(specs)})")
+    src = None
+    for name in _scene_raw_candidates(scene_id):
+        src = try_sync_raw(name)
+        if src is not None:
+            canon = RAW / f"scene_{scene_id}_ai.png"
+            if src.resolve() != canon.resolve():
+                shutil.copy2(src, canon)
+                src = canon
+            break
+    if src is None:
+        raise SystemExit(f"need raw for scene '{scene_id}': scene_{scene_id}_ai.png")
+    cook = gen_spec()["scene"]["cook"]
+    print(f"=== scene:{scene_id} ({specs[scene_id]}) ===")
     _process_bg_anim_sheet(
-        RAW / "title_bg_anim_ai.png",
-        BG / "title_sheet.png",
-        BG / "title.png",
-        480,
-        270,
-        colors=48,
+        src,
+        BG / f"scene_{scene_id}_sheet.png",
+        BG / f"scene_{scene_id}.png",
+        0,
+        int(cook["frame_h_1x"]),
+        colors=48 if scene_id == "title" else int(cook["colors"]),
         key_magenta=False,
-        split="vertical",
+        split=str(cook["split"]),
+        keep_wide=bool(cook["keep_wide"]),
+        subtle=True,
+        min_aspect=float(cook["min_aspect"]),
     )
+
+
+def process_scenes(ids: list[str] | None = None) -> None:
+    """处理全部或指定场景；缺 raw 的跳过并列出。"""
+    specs = _scene_names()
+    todo = ids if ids else list(specs.keys())
+    missing: list[str] = []
+    for sid in todo:
+        try:
+            process_scene(sid)
+        except SystemExit as e:
+            print(f"  skip {sid}: {e}")
+            missing.append(sid)
+    if missing:
+        print("MISSING scenes (regen AI → assets/raw/scene_<id>_ai.png):", ", ".join(missing))
+
+
+def process_skies() -> None:
+    """兼容旧命令：关卡场景（不含 title）。"""
+    process_scenes([i for i in _scene_names() if i != "title"])
 
 
 def process_title_logo() -> None:
@@ -318,39 +475,6 @@ def process_title_logo() -> None:
     final.crop((0, 0, tw * 2, th * 2)).save(ui / "title_logo.png")
     print(f"  {out.relative_to(ROOT)} {final.size} cell={tw}x{th}@1x → {tw*2}x{th*2}@2x frames={n}")
     print(f"  UPDATE SpriteFactory TITLE_LOGO_W/H = {tw*2}, {th*2}")
-
-
-def process_skies() -> None:
-    """Sky / mid 均为 ≥2 帧；mid 只留山丘，禁止变形树当中景。"""
-    sync_raw("sky_anim_ai.png")
-    sync_raw("mid_anim_ai.png")
-    _process_bg_anim_sheet(
-        RAW / "sky_anim_ai.png",
-        BG / "sky_sheet.png",
-        BG / "sky.png",
-        480,
-        180,
-        colors=40,
-        key_magenta=False,
-        split="horizontal",
-    )
-    # dusk / creek：整条 sheet 着色
-    _tint_sheet(BG / "sky_sheet.png", BG / "sky_dusk_sheet.png", (1.15, 0.85, 0.72))
-    _tint_sheet(BG / "sky_sheet.png", BG / "sky_creek_sheet.png", (0.88, 0.95, 1.08))
-    # 单帧回退
-    Image.open(BG / "sky_dusk_sheet.png").crop((0, 0, 960, 360)).save(BG / "sky_dusk.png")
-    Image.open(BG / "sky_creek_sheet.png").crop((0, 0, 960, 360)).save(BG / "sky_creek.png")
-    _process_bg_anim_sheet(
-        RAW / "mid_anim_ai.png",
-        BG / "mid_sheet.png",
-        BG / "mid.png",
-        480,
-        140,
-        colors=36,
-        key_magenta=True,
-        bottom_align=True,
-        split="vertical",
-    )
 
 
 def _split_anim_frames(
@@ -420,6 +544,65 @@ def _crop_to_aspect(img: Image.Image, aspect: float) -> Image.Image:
     return img.crop((0, y0, w, y0 + nh))
 
 
+def _frame_diff_mean(a: Image.Image, b: Image.Image) -> float:
+    a = a.convert("RGB").resize((64, 36), Image.Resampling.BOX)
+    b = b.convert("RGB").resize((64, 36), Image.Resampling.BOX)
+    pa, pb = a.load(), b.load()
+    acc = 0.0
+    n = a.width * a.height
+    for y in range(a.height):
+        for x in range(a.width):
+            r1, g1, b1 = pa[x, y]
+            r2, g2, b2 = pb[x, y]
+            acc += abs(r1 - r2) + abs(g1 - g2) + abs(b1 - b2)
+    return acc / max(1, n * 3)
+
+
+def _subtle_second_frame(base: Image.Image, *, shift_px: int = 6) -> Image.Image:
+    """同一景微动：水平滚一点，避免上下半幅色光差太大。"""
+    base = base.convert("RGBA")
+    w, h = base.size
+    sx = max(1, min(shift_px, w // 40))
+    out = Image.new("RGBA", (w, h))
+    # 左移缝：右侧补左侧条带（环绕，无黑边）
+    left = base.crop((sx, 0, w, h))
+    right = base.crop((0, 0, sx, h))
+    out.paste(left, (0, 0))
+    out.paste(right, (w - sx, 0))
+    return out
+
+
+def _pair_subtle_frames(parts: list[Image.Image], *, max_diff: float = 10.0) -> list[Image.Image]:
+    """双帧必须接近：差异大则丢弃下半幅，用上半幅微位移做第 2 帧。"""
+    if len(parts) < 2:
+        base = parts[0]
+        return [base, _subtle_second_frame(base)]
+    a, b = parts[0], parts[1]
+    # 对齐尺寸再比
+    if a.size != b.size:
+        b = b.resize(a.size, Image.Resampling.BOX)
+    d = _frame_diff_mean(a, b)
+    if d <= max_diff:
+        print(f"  subtle OK diff={d:.1f} (keep AI pair)")
+        return [a, b]
+    print(f"  subtle FAIL diff={d:.1f} > {max_diff} → micro-shift from frame0")
+    return [a, _subtle_second_frame(a)]
+
+
+def _crop_to_min_aspect(img: Image.Image, min_aspect: float) -> Image.Image:
+    """若不够宽，中心裁高，拉成更超宽横幅（左右更开）。"""
+    img = img.convert("RGBA")
+    w, h = img.size
+    if w < 2 or h < 2:
+        return img
+    cur = w / h
+    if cur >= min_aspect - 0.01:
+        return img
+    nh = max(1, int(round(w / min_aspect)))
+    y0 = max(0, (h - nh) // 2)
+    return img.crop((0, y0, w, y0 + nh))
+
+
 def _process_bg_anim_sheet(
     src: Path,
     sheet_out: Path,
@@ -431,43 +614,71 @@ def _process_bg_anim_sheet(
     key_magenta: bool,
     bottom_align: bool = False,
     split: str = "auto",
+    keep_wide: bool = False,
+    subtle: bool = False,
+    min_aspect: float = 0.0,
 ) -> None:
-    """等比：先中心裁到 tw:th，再 BOX 缩小；禁止非等比拉伸变形。"""
+    """BOX 缩小 + 量化；keep_wide=按高缩放；min_aspect>0 时先裁成更超宽。"""
     parts = _split_anim_frames(Image.open(src), 2, prefer=split)
+    if subtle and not key_magenta:
+        parts = _pair_subtle_frames(parts)
+    if min_aspect > 0 and not key_magenta:
+        parts = [_crop_to_min_aspect(p, min_aspect) for p in parts]
+        print(f"  ultra-wide crop aspect≥{min_aspect:.2f} → {[p.size for p in parts]}")
     n = len(parts)
-    aspect = tw / th
-    sheet = Image.new("RGBA", (tw * n, th), (0, 0, 0, 0))
+    cooked: list[Image.Image] = []
     for i, part in enumerate(parts):
         if key_magenta:
             part = fringe(matte(part, blob=False))
             part = trim(part, pad=2)
             if part.width < 4 or part.height < 4:
                 print(f"  empty bg frame {i}")
+                cooked.append(Image.new("RGBA", (max(1, tw), th), (0, 0, 0, 0)))
                 continue
-            # 透明底山丘：等比塞进格子，不拉扁
-            scale = min(tw / part.width, th / part.height)
+            cell_w = tw if tw > 0 else max(480, int(round(th * part.width / max(1, part.height))))
+            scale = min(cell_w / part.width, th / part.height)
             nw = max(1, round(part.width * scale))
             nh = max(1, round(part.height * scale))
             pix = hard_pixel(part, nw, nh, colors=colors, pad="green", rematte=True)
             pix = fringe(pix)
-            canvas = Image.new("RGBA", (tw, th), (0, 0, 0, 0))
+            canvas = Image.new("RGBA", (cell_w, th), (0, 0, 0, 0))
             y = th - nh if bottom_align else (th - nh) // 2
-            canvas.paste(pix, ((tw - nw) // 2, y), pix)
-            sheet.paste(canvas, (i * tw, 0), canvas)
-            print(f"  frame{i} src={part.size} -> fit {nw}x{nh} in {tw}x{th}")
+            canvas.paste(pix, ((cell_w - nw) // 2, y), pix)
+            cooked.append(canvas)
+            print(f"  frame{i} src={part.size} -> fit {nw}x{nh} in {cell_w}x{th}")
+        elif keep_wide:
+            # 对齐 VIEW 高：th@1x → ×2 后约 720，局内 1:1 不糊
+            scale = th / max(1, part.height)
+            nw = max(1, round(part.width * scale))
+            nh = th
+            # BOX 到 2× 目标再 NEAREST 回目标 → 块更硬
+            mid = part.resize((nw * 2, nh * 2), Image.Resampling.BOX)
+            q = mid.convert("RGB").quantize(
+                colors=colors, method=Image.Quantize.MAXCOVERAGE, dither=Image.Dither.NONE
+            ).convert("RGBA")
+            q = q.resize((nw, nh), Image.Resampling.NEAREST)
+            cooked.append(q)
+            print(f"  frame{i} src={part.size} -> wide {nw}x{nh} (aspect={nw/nh:.2f})")
         else:
+            aspect = tw / th
             part = _crop_to_aspect(part, aspect)
             print(f"  frame{i} cropped={part.size} -> {tw}x{th} (aspect-kept)")
             small = part.resize((tw, th), Image.Resampling.BOX)
             q = small.convert("RGB").quantize(
                 colors=colors, method=Image.Quantize.MAXCOVERAGE, dither=Image.Dither.NONE
             ).convert("RGBA")
-            sheet.paste(q, (i * tw, 0))
-    final = sheet.resize((tw * n * 2, th * 2), Image.Resampling.NEAREST)
+            cooked.append(q)
+    cell_w = max(p.width for p in cooked)
+    cell_h = th
+    sheet = Image.new("RGBA", (cell_w * n, cell_h), (0, 0, 0, 0))
+    for i, q in enumerate(cooked):
+        x = i * cell_w + (cell_w - q.width) // 2
+        sheet.paste(q, (x, 0), q if q.mode == "RGBA" else None)
+    final = sheet.resize((cell_w * n * 2, cell_h * 2), Image.Resampling.NEAREST)
     sheet_out.parent.mkdir(parents=True, exist_ok=True)
     final.save(sheet_out)
-    final.crop((0, 0, tw * 2, th * 2)).save(frame0_out)
-    print(f"  {sheet_out.relative_to(ROOT)} {final.size} frames={n}")
+    final.crop((0, 0, cell_w * 2, cell_h * 2)).save(frame0_out)
+    print(f"  {sheet_out.relative_to(ROOT)} {final.size} cell={cell_w*2}x{cell_h*2}@2x frames={n}")
 
 
 def _tint_sheet(src: Path, out: Path, mul: tuple[float, float, float]) -> None:
@@ -489,8 +700,181 @@ def process_door() -> None:
 
 
 def process_tiles() -> None:
-    """Prefer scene-sized full-bleed tiles (AI sheet left empty margins / pink fringe)."""
-    make_scene_tiles()
+    """主题地面/平台：每个部件单独 AI（ground|edge|platform），禁止三格拼图。"""
+    print("=== theme tiles (single-part AI / gen_spec) ===")
+    ids = list(gen_spec()["tiles"]["ids"])
+    parts = list(gen_spec()["tiles"]["parts"])
+    ok = 0
+    for sid in ids:
+        for part in parts:
+            src = try_sync_raw(f"tiles_{sid}_{part}_ai.png")
+            if src is None:
+                print(f"  skip {sid}/{part}: no tiles_{sid}_{part}_ai.png")
+                continue
+            try:
+                _cook_tile_part_ai(sid, part, src)
+                ok += 1
+            except Exception as e:
+                print(f"  FAIL {sid}/{part}: {e}")
+    _write_tile_set(TILES, _TILE_PALETTES["meadow"], also_cloud=True)
+    if gen_spec()["tiles"].get("palette_fallback", True):
+        for sid in ids:
+            out_dir = TILES / sid
+            need = []
+            mapping = {"ground": "ground.png", "edge": "grass_edge.png", "platform": "platform.png"}
+            for part, fname in mapping.items():
+                if not (out_dir / fname).is_file():
+                    need.append(fname)
+            if need:
+                print(f"  fill {sid} missing {need} via palette")
+                _write_tile_set(out_dir, _TILE_PALETTES[sid], also_cloud=False)
+    print(f"  AI-cooked parts: {ok}")
+
+
+def _cook_tile_part_ai(scene_id: str, part: str, src: Path) -> None:
+    """单部件：matte → hard_pixel → 清屏键。"""
+    cook_all = gen_spec()["tiles"]["cook"]
+    if part not in cook_all:
+        raise RuntimeError(f"unknown part {part}")
+    cfg = cook_all[part]
+    tw, th = int(cfg["w"]), int(cfg["h"])
+    opaque = bool(cfg["opaque"])
+    colors = int(cfg["colors"])
+    pad = str(cook_all.get("pad", "green"))
+    out_name = str(cfg.get("out", f"{part}.png"))
+    if part == "edge":
+        out_name = "grass_edge.png"
+    elif part == "ground":
+        out_name = "ground.png"
+    elif part == "platform":
+        out_name = "platform.png"
+
+    raw = Image.open(src).convert("RGBA")
+    cell = fringe(matte(raw, blob=True))
+    cell = trim(cell, pad=2)
+    cell = _kill_screen_pixels(cell)
+    if cell.width < 6 or cell.height < 4:
+        raise RuntimeError(f"{part} empty after matte")
+
+    if opaque:
+        scale = min(tw * 3 / cell.width, th * 3 / cell.height)
+        nw = max(tw, round(cell.width * scale))
+        nh = max(th, round(cell.height * scale))
+        pix = hard_pixel(cell, nw, nh, colors=colors, pad=pad, rematte=True)
+        pix = fringe(_kill_screen_pixels(pix))
+        pix = _fill_opaque_cell(pix, tw, th)
+    else:
+        pix = hard_pixel(cell, tw, th, colors=colors, pad=pad, rematte=True)
+        pix = fringe(_kill_screen_pixels(pix))
+        canvas = Image.new("RGBA", (tw, th), (0, 0, 0, 0))
+        canvas.paste(pix, ((tw - pix.width) // 2, th - pix.height), pix)
+        pix = canvas
+
+    pix = _kill_screen_pixels(pix)
+    out_dir = TILES / scene_id
+    out_dir.mkdir(parents=True, exist_ok=True)
+    path = out_dir / out_name
+    pix.save(path)
+    from pixel_matte import is_screen_key
+
+    px = pix.load()
+    bad = sum(
+        1
+        for y in range(pix.height)
+        for x in range(pix.width)
+        if px[x, y][3] > 20 and is_screen_key(*px[x, y][:3], px[x, y][3])
+    )
+    print(f"  {path.relative_to(ROOT)} {pix.size} screen_left={bad}")
+    if bad:
+        raise RuntimeError(f"{scene_id}/{out_name} screen residue ({bad})")
+
+
+def print_gen_prompt(kind: str, theme_id: str = "meadow", part: str = "ground") -> None:
+    """打印统一生图 prompt（助手/人工共用）。"""
+    spec = gen_spec()
+    if kind == "scene":
+        name = spec["scene"]["names"].get(theme_id, theme_id)
+        ai = spec["scene"]["ai"]
+        must = "; ".join(ai["prompt_must"])
+        print(
+            f"SCENE {theme_id} ({name})\n"
+            f"aspect={ai['aspect']} layout={ai['layout']}\n"
+            f"style: {ai['style']}\n"
+            f"MUST: {must}\n"
+            f"theme: {name}. Out: scene_{theme_id}_ai.png"
+        )
+    elif kind == "tiles":
+        ai = spec["tiles"]["ai"]
+        cook = spec["tiles"]["cook"]
+        theme = spec["tiles"]["themes"].get(theme_id, theme_id)
+        if part not in ai["parts"]:
+            raise SystemExit(f"part want {list(ai['parts'])}")
+        p = ai["parts"][part]
+        common = "; ".join(ai["prompt_common"])
+        must = "; ".join(p["must"])
+        ckey = "edge" if part == "edge" else part
+        if ckey == "edge":
+            ckey = "edge"
+        sz = cook[part]
+        print(
+            f"TILE PART {theme_id}/{part}\n"
+            f"theme: {theme}\n"
+            f"aspect={p['aspect']} screen={ai['screen']}\n"
+            f"style: {ai['style']}\n"
+            f"COMMON: {common}\n"
+            f"PART MUST: {must}\n"
+            f"cook: {sz['w']}x{sz['h']} opaque={sz['opaque']}\n"
+            f"Out: tiles_{theme_id}_{part}_ai.png"
+        )
+    else:
+        raise SystemExit("kind want scene|tiles")
+
+
+def _kill_screen_pixels(img: Image.Image) -> Image.Image:
+    from pixel_matte import is_screen_key
+
+    img = img.convert("RGBA")
+    px = img.load()
+    for y in range(img.height):
+        for x in range(img.width):
+            r, g, b, a = px[x, y]
+            if a > 0 and is_screen_key(r, g, b, a):
+                px[x, y] = (0, 0, 0, 0)
+    return img
+
+
+def _fill_opaque_cell(img: Image.Image, tw: int, th: int) -> Image.Image:
+    """地面/平台必须满格不透：cover 装格，空洞用中位土色填。"""
+    img = trim(img, pad=0)
+    if img.width < 2 or img.height < 2:
+        return Image.new("RGBA", (tw, th), (120, 82, 50, 255))
+    scale = max(tw / img.width, th / img.height)
+    nw = max(1, round(img.width * scale))
+    nh = max(1, round(img.height * scale))
+    scaled = img.resize((nw, nh), Image.Resampling.NEAREST)
+    canvas = Image.new("RGBA", (tw, th), (0, 0, 0, 0))
+    canvas.paste(scaled, ((tw - nw) // 2, (th - nh) // 2), scaled)
+    # 采样不透明像素中位色
+    px = canvas.load()
+    samples: list[tuple[int, int, int]] = []
+    for y in range(th):
+        for x in range(tw):
+            r, g, b, a = px[x, y]
+            if a >= 200:
+                samples.append((r, g, b))
+    if not samples:
+        fill = (120, 82, 50)
+    else:
+        samples.sort()
+        fill = samples[len(samples) // 2]
+    for y in range(th):
+        for x in range(tw):
+            if px[x, y][3] < 200:
+                px[x, y] = (*fill, 255)
+            else:
+                r, g, b, _ = px[x, y]
+                px[x, y] = (r, g, b, 255)
+    return canvas
 
 
 def process_decor() -> None:
@@ -550,7 +934,7 @@ def process_enemies() -> None:
         (parts[0], ENEMIES / "enemy_bug_sheet.png", 36, 28, 4),
         (parts[1], ENEMIES / "enemy_weed_sheet.png", 32, 44, 4),
         (parts[2], ENEMIES / "enemy_flyer_sheet.png", 48, 36, 4),
-        (parts[3], ENEMIES / "enemy_boss_sheet.png", 72, 72, 4),
+        (parts[3], ENEMIES / "enemy_boss_sheet.png", 120, 120, 4),
     ]
     ENEMIES.mkdir(parents=True, exist_ok=True)
     singles = [
@@ -582,8 +966,8 @@ def process_enemies() -> None:
 
 
 def process_all_world() -> None:
-    print("=== skies / mid ===")
-    process_skies()
+    print("=== scenes ===")
+    process_scenes()
     print("=== door ===")
     process_door()
     print("=== tiles ===")
@@ -605,11 +989,9 @@ def process_all_world() -> None:
         process_enemies()
     except SystemExit as e:
         print("skip enemies:", e)
-    print("=== dice / title (if present) ===")
+    print("=== dice / title logo (if present) ===")
     if (CURSOR_ASSETS / "dice_ai.png").is_file() or (RAW / "dice_ai.png").is_file():
         process_dice()
-    if (CURSOR_ASSETS / "title_bg_ai.png").is_file() or (RAW / "title_bg_ai.png").is_file():
-        process_title()
     if (CURSOR_ASSETS / "title_logo_anim_ai.png").is_file() or (RAW / "title_logo_anim_ai.png").is_file():
         process_title_logo()
 
@@ -623,6 +1005,7 @@ def main() -> None:
             "dice",
             "title",
             "title_logo",
+            "scenes",
             "skies",
             "door",
             "tiles",
@@ -632,17 +1015,46 @@ def main() -> None:
             "enemies",
             "world",
             "all",
+            "prompt",
+            "spec",
         ],
     )
+    ap.add_argument(
+        "--id",
+        default="",
+        help="id for scenes|title|prompt (title|meadow|orchard|creek|dusk|cliff)",
+    )
+    ap.add_argument(
+        "--kind",
+        default="scene",
+        choices=["scene", "tiles"],
+        help="with --what prompt",
+    )
+    ap.add_argument(
+        "--part",
+        default="ground",
+        choices=["ground", "edge", "platform"],
+        help="tile part with --what prompt --kind tiles",
+    )
     args = ap.parse_args()
-    if args.what == "dice":
+    if args.what == "spec":
+        print(GEN_SPEC_PATH)
+        print(json.dumps(gen_spec(), ensure_ascii=False, indent=2)[:2000], "...")
+    elif args.what == "prompt":
+        print_gen_prompt(args.kind, args.id or "meadow", args.part)
+    elif args.what == "dice":
         process_dice()
     elif args.what == "title":
-        process_title()
+        process_scene(args.id or "title")
     elif args.what == "title_logo":
         process_title_logo()
-    elif args.what == "skies":
-        process_skies()
+    elif args.what in ("scenes", "skies"):
+        if args.id:
+            process_scene(args.id)
+        elif args.what == "skies":
+            process_skies()
+        else:
+            process_scenes()
     elif args.what == "door":
         process_door()
     elif args.what == "tiles":

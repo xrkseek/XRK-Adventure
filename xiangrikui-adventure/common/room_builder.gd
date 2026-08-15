@@ -1,4 +1,4 @@
-﻿class_name RoomBuilder
+class_name RoomBuilder
 extends RefCounted
 
 ## Builds themed rooms: layout + decor differ so runs feel varied.
@@ -40,30 +40,61 @@ static func theme_name(t: RoomTheme) -> String:
 		RoomTheme.CREEK:
 			return "溪边青石"
 		RoomTheme.DUSK:
-			return "黄昏田野"
+			return "枫林暮色"
 		RoomTheme.CLIFF:
 			return "岩阶高台"
 	return "鹿外"
 
 
-static func sky_path(t: RoomTheme) -> String:
+static func theme_id(t: RoomTheme) -> String:
 	match t:
-		RoomTheme.DUSK:
-			return "res://assets/bg/sky_dusk.png"
+		RoomTheme.MEADOW:
+			return "meadow"
+		RoomTheme.ORCHARD:
+			return "orchard"
 		RoomTheme.CREEK:
-			return "res://assets/bg/sky_creek.png"
-		_:
-			return "res://assets/bg/sky.png"
+			return "creek"
+		RoomTheme.DUSK:
+			return "dusk"
+		RoomTheme.CLIFF:
+			return "cliff"
+	return "meadow"
+
+
+static func scene_path(t: RoomTheme) -> String:
+	return "res://assets/bg/scene_%s.png" % theme_id(t)
+
+
+static func scene_sheet_path(t: RoomTheme) -> String:
+	return "res://assets/bg/scene_%s_sheet.png" % theme_id(t)
+
+
+static func tile_dir(t: RoomTheme) -> String:
+	return "res://assets/tiles/%s" % theme_id(t)
+
+
+static func ground_path(t: RoomTheme) -> String:
+	var p := "%s/ground.png" % tile_dir(t)
+	return p if ResourceLoader.exists(p) else "res://assets/tiles/ground.png"
+
+
+static func grass_edge_path(t: RoomTheme) -> String:
+	var p := "%s/grass_edge.png" % tile_dir(t)
+	return p if ResourceLoader.exists(p) else "res://assets/tiles/grass_edge.png"
+
+
+static func platform_path(t: RoomTheme) -> String:
+	var p := "%s/platform.png" % tile_dir(t)
+	return p if ResourceLoader.exists(p) else "res://assets/tiles/platform.png"
+
+
+## 兼容旧调用名
+static func sky_path(t: RoomTheme) -> String:
+	return scene_path(t)
 
 
 static func sky_sheet_path(t: RoomTheme) -> String:
-	match t:
-		RoomTheme.DUSK:
-			return "res://assets/bg/sky_dusk_sheet.png"
-		RoomTheme.CREEK:
-			return "res://assets/bg/sky_creek_sheet.png"
-		_:
-			return "res://assets/bg/sky_sheet.png"
+	return scene_sheet_path(t)
 
 
 func build(
@@ -130,8 +161,8 @@ func _add_ground(parent: Node2D, x: float, y: float, w: float, h: float) -> void
 	shape.position = Vector2(w * 0.5, h * 0.5)
 	body.add_child(shape)
 
-	var ground_tex: Texture2D = load("res://assets/tiles/ground.png")
-	var edge_tex: Texture2D = load("res://assets/tiles/grass_edge.png")
+	var ground_tex: Texture2D = load(ground_path(theme))
+	var edge_tex: Texture2D = load(grass_edge_path(theme))
 	# TILE = display width; stretch tex to exact TILE×GROUND_H (no gaps/overlap).
 	var gtw := float(ground_tex.get_width())
 	var gth := float(ground_tex.get_height())
@@ -146,10 +177,6 @@ func _add_ground(parent: Node2D, x: float, y: float, w: float, h: float) -> void
 		dirt.centered = false
 		dirt.position = Vector2(i * GameConstants.TILE, 0)
 		dirt.scale = Vector2(GameConstants.TILE / gtw, h / gth)
-		if theme == RoomTheme.DUSK:
-			dirt.modulate = Color(1.08, 0.92, 0.85)
-		elif theme == RoomTheme.CREEK:
-			dirt.modulate = Color(0.9, 0.95, 1.05)
 		body.add_child(dirt)
 
 		var grass := Sprite2D.new()
@@ -234,7 +261,7 @@ func _add_platform(parent: Node2D, x: float, y: float, w: float, h: float) -> vo
 	shape.one_way_collision_margin = 4.0
 	body.add_child(shape)
 
-	var plat_tex: Texture2D = load("res://assets/tiles/platform.png")
+	var plat_tex: Texture2D = load(platform_path(theme))
 	var segs := maxi(1, int(ceili(w / GameConstants.PLAT_TEX_W)))
 	var seg_w := w / float(segs)
 	for i in segs:

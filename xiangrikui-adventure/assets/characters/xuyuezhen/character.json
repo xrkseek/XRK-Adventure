@@ -8,11 +8,51 @@
   "palette": 96,
   "quant_pad": "green",
   "key_hint": "magenta",
+  "matte": "chroma",
   "states": {
-    "idle": { "frames": 16, "fps": 8.0, "loop": true },
-    "walk": { "frames": 4, "fps": 10.0, "loop": true },
-    "jump": { "frames": 3, "fps": 10.0, "loop": true },
-    "attack": { "frames": 3, "fps": 14.0, "loop": false }
+    "idle": {
+      "frames": 16,
+      "fps": 8.0,
+      "loop": true
+    },
+    "walk": {
+      "frames": 6,
+      "fps": 10.0,
+      "loop": true
+    },
+    "jump": {
+      "frames": 8,
+      "fps": 12.0,
+      "loop": false,
+      "phases": {
+        "ascent": [
+          1,
+          2,
+          3
+        ],
+        "peak": 4,
+        "descent": [
+          5
+        ],
+        "land": [
+          6,
+          7
+        ]
+      }
+    },
+    "attack": {
+      "frames": 6,
+      "fps": 14.0,
+      "loop": false,
+      "dirs": [
+        "e",
+        "ne",
+        "n",
+        "se",
+        "s"
+      ]
+    }
   },
-  "projectile": "dice"
+  "projectile": "dice",
+  "attack_duration": 0.43
 }

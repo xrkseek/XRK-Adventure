@@ -38,38 +38,155 @@ tools/
 - **禁止**在各 `process_*.py` 复制 chroma / hard_pixel；只调 `pixel_matte` + `pixel_cook`。
 - 改 sheet 尺寸/帧数后必须 **Godot reimport**（旧缓存 → atlas 空帧 → idle 隐身）。
 
-## 0.2 抠图铁律（`pixel_matte.py`）
+## 0.2 抠图 / prep 铁律（`pixel_matte.py` · 学自 spritebrew + 本仓教训）
 
 **教训**：全图扫粉抠穿粉蛾；品红幕+粉体混色；灰格线封住黑底导致「只裁格不抠」；量化褪色品红成脚下粉条；浅粉 AA 留在左上。
+
+参考 `Desktop/XRKbar/spritebrew`：`CharacterAutoPrep`（detect→crop→removeBg→fit padded）与 `despillChromaEdges`（轮廓环剥色相溢色、不改 alpha）。本仓**逐渐对齐**，但角色仍以边缘洪水为主（禁止全图色距抠穿）。
 
 ### 键色幕必须与主体反差
 
 | 主体主色 | 推荐幕布 | 禁止 |
 |---------|---------|------|
 | 粉色系 | **纯黑 `#000000`** | 品红/粉紫幕 |
-| 深色衣/黑裤/黑发 | 热品红 `#FF00FF` | 纯黑幕 |
+| 深色衣/黑裤/黑发 | 热品红 `#FF00FF` + **`matte: chroma`（只抠粉）** | 纯黑幕；`flood`（会抠穿黑裤） |
 | 绿植多 | 品红或黑 | 绿色幕 |
 
-1. **只允许边缘洪水抠幕**（含深灰格线键 + 深紫封边 + 中段品红 AA）；禁止全图宽粉/宽黑扫描。
-2. **切格后必须 `matte()`**，禁止只 crop。
-3. **量化垫色**（`pixel_cook.hard_pixel`）：粉体→`pad=black`；深色衣角色→`pad=green`；**禁止品红垫**。
-4. **禁截断**：生图每格 ≥约 8% margin；装格用 `fit_contain` / 角色脚底用 `fit_bottom_fixed`；贴边 WARN → 重生。
+### 本仓管线 ↔ spritebrew
+
+| 步骤 | spritebrew | 本仓 |
+|------|------------|------|
+| 检主体 | contour / blob detect | `keep_largest_blob`（切格后） |
+| 抠幕 | 四角采样 + tolerance（道具可） | 默认 **边缘洪水** `chroma_flood`；品红幕+深色角/蹄用 `"matte": "chroma"`（全图去色、不啃暗）；`rembg` 仅在有 CUDA/GPU-ORT 时可选 |
+| 清格线 | — | **新模板无格线**。格内底=幕色；虚拟等格数学切分。旧灰图 flood 可用 `is_neutral_grid_grey`；chroma **禁止**靠中性灰抠 |
+| 边溢色 | `despillChromaEdges`（贴透明环、lum 门控） | `fringe_clean` + **`despill_chroma_edges`** |
+| 装格 | `fitToTransparentSquarePadded`（fill≈75%） | `fit_contain` / `fit_bottom_fixed`；margin≥8% |
+| 缩放 | `imageSmoothingEnabled=false` | **NEAREST only** |
+
+1. **默认边缘洪水抠幕**（含深灰格线键 + 中灰格线 + 深紫封边 + 中段品红 AA）；禁止全图像素级宽粉/宽黑扫描。品红幕 + 深色角/蹄/黑裤用 **`matte: chroma`（只去品红，禁止 fringe 杀 `is_dark_key`）**。`matte: rembg` 仅在本机有 **CUDA / GPU ORT** 时才值得开。  
+   - 四角色距抠幕**仅**可用于无复杂主体的道具/UI 兜底，不得用于粉蛾/角色。
+2. **切格后必须 `matte_auto()`**（flood / chroma / rembg），禁止只 crop。
+3. **量化垫色**（`pixel_cook.hard_pixel`）：粉体→`pad=black`；深色衣角色→`pad=green`；**禁止品红垫**。绿垫后必须 `despill` 绿晕。chroma/rembg 路径 **关闭** `hard_pixel` 二次 flood rematte。
+4. **禁截断**：生图每格 ≥约 8% margin（≈ spritebrew characterSizePct 75% 的留白）；装格用 `fit_contain` / 角色脚底用 `fit_bottom_fixed`；贴边 WARN → 重生。
 5. 空帧 / 近空帧必须 WARN。
-6. **品红边教训**：`is_screen_key` 必须覆盖中段 AA（如 `175,79,146`）；`fringe_clean` 只杀贴透明边的溢色；`strip_orphan_screen` 清封闭粉岛。
+6. **品红边**：`is_screen_key` 覆盖中段 AA；`fringe_clean` 杀贴透明边溢色；`strip_orphan_screen` 清封闭粉岛；`despill_chroma_edges('#FF00FF')` 剥暗环品红成分（不删像素）。
+7. **prep 顺序（对齐 AutoPrep，逐渐做严）**：  
+   `split_frames → matte_auto(mode) → trim → hard_pixel → despill → fit_* → sheet`。  
+   立绘入库前也可走同一 prep，再当 idle 参考；**动作基图仍必须是确认后的 idle 像素**（§0.5）。
 
-## 0.3 生图强约束
+## 0.3 生图强约束（模组 / GenerateImage / fill 一律遵守）
 
-1. Prompt 写明幕布色 + `NEVER truncate by cell edges`。
-2. 展翅/挥臂先加高加宽画格，不要事后硬裁。
-3. 用户确认过的帧（如双眼闭眼）不要擅自重画。
+### 0.3.1 参考图顺序（防双像素糊 · 血泪）
+
+| 顺序 | 图 | 用途 | 禁止 |
+|------|----|------|------|
+| 1 | `template_<state>_*.png`（walk/jump 第 1 格可贴 idle） | **纯幕色**虚拟等格 | 无模板；灰底；可见边框 |
+| 2 | **idle 生图**：`cutout.png`；**walk/jump/attack**：`idle_pixel_preview.png` | idle=立绘定造型；动作=**已确认 idle 像素** | 动作态直接喂立绘 cutout |
+| 3 | （仅 idle）若需姿态锁另附 | — | 动作态再喂立绘 |
+
+- **idle**：`[template, cutout]` → 确认后写出 `idle_pixel_preview`。
+- **walk/jump/attack**：`[template(+idle f1), idle_pixel]`。**禁止**再喂 `cutout` 立绘（会漂道具/比例）。
+- Prompt：动作态写 `idle_pixel = only character ref; NO 立绘; same height as cell 1`。
+
+### 0.3.2 动作缩放铁律（压过占格争论）
+
+1. **无论模板比例多少**：AI 填格的 **第 1 格必须是 `anim/idle_sheet` 第 1 帧**（同姿态、同角色；可粘贴 idle 进模板格，禁止另画一个「差不多的站姿」冒充）。
+2. **动作模组与正常 idle 同高**：cook 后角色 **content 高度 = idle 首帧 content 高度**（同高，不是占满 `cell_h`）。
+3. **其它帧共用同一个 scale**：按 **头宽** 对齐 idle（`scale = idle_head_w / median(head_w)`），禁止用各帧 content_h 分别缩放（蹲姿会被缩小人）。超出 cell 时整张再用同一个 uniform-fit。
+4. **无所谓占不占满格子**：不追求填满 cell；顶留白多少不作为 FAIL。左右半身裁切仍 FAIL。
+5. Prompt 必写：`Cell 1 = exact copy of idle frame 1. All other cells same character height as cell 1; only motion changes.`
+
+### 0.3.3 Prompt / 画格（硬约束要短，占格要松）
+
+1. **幕布**：粉衣→`#000000`；深衣→`#FF00FF`。实心平涂。**禁止**边框/标签/格线。
+2. **角色禁幕色**：身上不要 `#FF00FF`（帽眼用白+黑）。
+3. **占格 ~60%**：均匀居中，四周留白方便裁；**禁止贴边撑满**。跳跃用姿态表现高度，勿把角色顶到格顶再靠裁图救。
+4. **特效**：无辅助线后可加尘土/动线等，勿用幕色画特效，勿出格。
+5. 第 1 格 = idle；同 sheet 同高同造型；一次一资产。
+6. 真源：`character.json` + `gen_spec.json`。
+
+### 0.3.4 入库 / ingest 强校验
+
+| 资产 | 强制 | FAIL 条件 |
+|------|------|-----------|
+| walk/jump | `force Nx1`；**f1=idle 首帧**（ingest 可粘贴覆盖） | f1 与 idle 差过大；L/R 半裁；近空帧；walk contact f1 除外的对侧不可分 |
+| attack dirs | `cook_attack_dirs` 等比切格 | 输出 ≠ `768×680` |
+| chroma | 拼条底品红 | 黑底+chroma |
+| cook | `scale` 一次；源已是像素则 `hard_pixel:false` 只 NEAREST | 二次像素化 / LANCZOS；动作比 idle 明显更高 |
+
+改 sheet 后必须 **`godot --import`**。
+
+## 0.4 统一生图规格（学自 XRKbar）
+
+| 来源 | 采纳 |
+|------|------|
+| sprite-animator | idle **4×4=16** 前端；格内角色一致；实心幕；NEAREST；入库前必须本仓 cook |
+| spritebrew | 默认可 `#FF00FF`；画格预设 16–256；边溢色清理；禁止双线性 |
+
+### 画格 / 产出尺寸（必须统一）
+
+| 资产 | AI 布局 | 入库 @1× | @2× / 局内 | 幕布 |
+|------|---------|----------|------------|------|
+| 角色 | 4×4 或横条 | **64×68** `body_h=60` | 128×136 | 粉→黑 / 深衣→品红 |
+| idle/walk/… | 见 `character.json` | 同上 | 同上 | 同上 |
+| scene | 16:9 **上下两道**微差全景 | 高 **360**（@2×=720 对齐视口）、宽随原图 | ×2 横条 2 帧 | 无幕 |
+| tiles | **单部件** 各生一张 | ground **32×32** / edge **32×10** / plat **96×28** | 同（TILE/PLAT） | **#FF00FF** |
+| flyer | 单图或横条 | **128×96** | — | 粉蛾→**黑** |
+| title_logo | 横条 4 帧 | ~280–440 × 120–220 | ×2 | 品红 |
+
+- scene / tiles 的 cook 参数、命名、prompt 要点全部在 **`gen_spec.json`**。
+- 禁止同一类资产混用多套尺寸（例如 ground 有时 16 有时 64）。
+- 色板 procedural **只作缺 AI 兜底**，正式美术走 AI→cook。
+
+## 0.5 角色动作生帧铁律（XRKbar · 必须遵守）
+
+路径：`Desktop/XRKbar/sprite-animator`（前端）+ 本仓 `process_character`（入库）。  
+spritebrew 的「Animate My Character」同理：**先有确认像素基图，再 animate**；导出后仍走本仓 cook。第三方不进本仓。
+
+### 禁止（血泪教训）
+
+- **禁止**不带标签模板、不带 idle 基图就瞎生成整张 walk/jump/attack sheet。
+- **禁止**用立绘 `cutout.png` 当动作基图（立绘只定造型；动作基图必须是**已确认 idle 像素**）。
+- **禁止**单帧乱拼凑冒充「一次填格一致性」（仅当模板填格失败且用户同意时，才允许「以 idle 为锁、串行单帧」补救，且须自检帧差）。
+- **禁止**跳过 `extract_frames` / 宽横条校验直接 cook。
+
+### 强制流程（每个 state）
+
+```
+1. 基图 = characters/<id>/refs/idle_pixel_preview.png
+   （或 anim/idle_sheet 首帧；用户已确认的 idle）
+2. create_template(cols, rows, labels) → XRKbar/.../examples/<id>/template_<state>.png
+3. 一次填格：preset prompt（IDENTICAL）+ 参考图顺序强制
+   - idle：`[template, cutout.png]`
+   - walk/jump/attack：`[template(+idle f1), idle_pixel_preview]`（**禁止 cutout 立绘**）
+   - 有 GEMINI_API_KEY → sprite-animator CLI / API
+   - 无 key → Cursor GenerateImage，同一顺序
+4. extract / ingest：`ingest_anim_fill.py`（walk Nx1 / jump 8×1 / attack→cook_attack_dirs）
+5. process_character.py 或 cook_attack_dirs → anim/<state>_sheet.png
+6. Godot reimport；用户确认后再做下一 state
+```
+
+### 状态 ↔ 模板（默认）
+
+| state | 模板 | 标签要点 | 入库帧 |
+|-------|------|----------|--------|
+| idle | **4×4** sprite-animator `idle` | 呼吸↑ / 双眼渐闭 / 渐开 / 呼吸↓ | 16 |
+| walk | **1×6** 横条 | contactR → pass↑ → contactL → pass↓ → contactR' → pass mid | **6** |
+| jump | **1×8**（或 4×4 bounce 抽 8） | 蹲→起跳→上升→顶点→开始落→下落→落地→回收 | **8** |
+| attack | **5×6** 行=`e,ne,n,se,s` | 每向 6 帧；左半平面 `flip_h`；sheet **不画**飞弹 | **6×5 向** |
+
+- jump 播放读 `states.jump.phases`（默认 ascent[0,1,2] / peak 3 / descent[4,5] / land[6,7]）。
+- 多向 attack 用 `cook_attack_dirs.py`（等比切格 + `lock_body_height` → `768×680`）；**禁止**非等比拉扁。
+- Prompt 必含：`Keep the character IDENTICAL … Only the specified motion changes` + 幕布色（粉衣→黑 / 深角蹄→品红）。
+- 助手工具：`python tools/make_anim_template.py --id <id> --state idle|walk|jump|attack`
 
 ## 1. 角色链（每只重复）
 
 ```
 cutout → assets/characters/<id>/refs/cutout.png
-  → AI idle（键色幕反差；横条或 4×4）
-  → 用户确认
-  → AI walk → jump → attack（串行）
+  → AI idle（4×4 模板 + 立绘参考；键色幕反差）
+  → 用户确认 → 写出 refs/idle_pixel_preview.png（此后唯一动作基图）
+  → walk → jump → attack（各按 §0.5；串行；每步确认）
   → python tools/process_character.py --id <id> --state …
   → RunManager.character_id=<id>；SpriteFactory 读 character.json
 ```
@@ -77,33 +194,51 @@ cutout → assets/characters/<id>/refs/cutout.png
 | 状态 | 默认帧 | 说明 |
 |------|--------|------|
 | idle | **16** | 呼吸 + 渐进双眼眨（禁 wink） |
-| walk | 4 | 迈步+摆臂 |
-| jump | 3 | 起跳/腾空/落势 |
-| attack | 3 | 蓄力/出手/回收（sheet 内不画飞弹） |
+| walk | **6** | 迈步+摆臂；对侧 contact 必须可区分 |
+| jump | **8** | 蹲→起跳→升→顶→落始→落→落地→回收；`player.gd` 按 phases 播 |
+| attack | **6×5 向** | 行 e/ne/n/se/s；远程 sheet 内不画飞弹；近战可持链 |
 
-帧数/画格/垫色以 **`character.json` 为唯一真源**（许月珍见该文件）。Godot 与 Python 都读它，禁止只改一边。
+帧数/画格/垫色以 **`character.json` 为唯一真源**。Godot 与 Python 都读它，禁止只改一边。
 
 - 画格默认：`cell 64×68 @1×` → `@2×` 128×136，`body_h=60`
-- 许月珍弹 = `props/dice.png` + `dice_bullet.tscn`；射击朝鼠标
+- **装格对齐**：`idle` 每帧锁 `body_h`。`walk/jump/attack`：**第 1 帧 = idle 首帧**；整张 **一个** `scale = idle_content_h / f1_content_h`，与 idle **同高**。**禁止**最高帧 bbox→`body_h`；**禁止**逐帧 `lock_body_h`；**不要求**占满格子。
+- 弹种读 `character.json` `projectile`（许月珍 `dice`；王美嘉 `scroll`）
 - **禁止** `AnimatedSprite2D.advance()`
 
 ### 新角色清单
 
 1. 复制 `assets/characters/xuyuezhen/character.json` → `characters/<id>/`
-2. 改 `id` / `display_name` / 需要时改 `quant_pad` / `states`
-3. 放入 `refs/cutout.png` 与 `raw/<state>_ai.png`
-4. `process_character.py --id <id> --state all`
+2. 改 `id` / `display_name` / 需要时改 `quant_pad` / `key_hint` / `projectile` / `states`
+3. 放入 `refs/cutout.png`；按 §0.5 做 idle → 确认 → 其它 state
+4. `process_character.py --id <id> --state …`
 5. 设 `RunManager.character_id`（或选角 UI）
 
 ## 2. 道具 / 世界
 
 ```bash
-python tools/process_ai_pixel.py --what skies|door|tiles|decor|tree|flyer|enemies|world|dice|title|title_logo
+python tools/process_ai_pixel.py --what scenes|door|tiles|decor|tree|flyer|enemies|world|dice|title|title_logo
+python tools/process_ai_pixel.py --what scenes --id meadow   # 单场景
 ```
+
+场景真源（整幅超宽双帧慢播，**不拼 mid**）：
+
+| id | 显示名 | raw | 产出 |
+|----|--------|-----|------|
+| title | 月下竹溪 | `raw/scene_title_ai.png` | `bg/scene_title_sheet.png` |
+| meadow | 向阳草地 | `raw/scene_meadow_ai.png` | `bg/scene_meadow_sheet.png` |
+| orchard | 果园小径 | `raw/scene_orchard_ai.png` | `bg/scene_orchard_sheet.png` |
+| creek | 溪边青石 | `raw/scene_creek_ai.png` | `bg/scene_creek_sheet.png` |
+| dusk | 枫林暮色 | `raw/scene_dusk_ai.png` | `bg/scene_dusk_sheet.png` |
+| cliff | 岩阶高台 | `raw/scene_cliff_ai.png` | `bg/scene_cliff_sheet.png` |
+
+- 生图：16:9 上下两道**几乎相同**的超宽横幅；入库裁到 ≥4.5:1；差异过大时管线用微位移做第 2 帧。
+- `RoomBuilder.theme_id` → `scene_<id>_sheet.png`；地面/平台 → `tiles/<id>/{ground,grass_edge,platform}.png`。
+- 主题 tiles：`raw/tiles_<id>_<part>_ai.png`（**单部件** ground|edge|platform，热品红幕）→ cook → `tiles/<id>/`。禁止三格拼一张。色板仅缺图兜底。
+- 打印：`python tools/process_ai_pixel.py --what prompt --kind tiles --id meadow --part ground`
 
 | 命令 | 产出 |
 |------|------|
-| skies | `bg/sky*` + `mid`（mid 须可抠透明天空） |
+| scenes | 上表全部 / `--id` 单张 |
 | tree / flyer | 单资产精细抠图 |
 | tiles | 满幅 ground/edge/platform |
 | dice | `props/dice.png` |
@@ -117,28 +252,31 @@ python tools/process_ai_pixel.py --what skies|door|tiles|decor|tree|flyer|enemie
 
 | 槽位 | 约束 |
 |------|------|
-| sky | 只天空；cover 盖满 `room_width` |
-| mid | 山丘够高；透明天空；parallax 加宽 pad |
+| scene | 整幅双帧；高对齐 VIEW；**宽度=图本身**，不硬撑房间；禁用 mid |
 | ground/platform | 满幅可平铺 |
 | tree | 完整树冠；脚底 `GROUND_Y`；左右 inset |
 | flyer | 粉蛾黑底；`FLYER 128×96`；完整翅膀+margin |
-| stretch | `aspect=keep` |
+| stretch | `aspect=expand` + `fractional`（忌底部黑边） |
 
 ## 4. 多帧与工具
 
-1. 像素横板优先关键帧清晰（idle 16 / walk 4～8），勿盲目追 100 帧。
+1. 像素横板优先关键帧清晰（idle 16 / walk 6 / jump 8 / attack 5×6），勿盲目追 100 帧。
 2. SpriteCook / sprite-animator 可作生帧前端；入库前必须 `pixel_matte` + `process_*`。
 3. 第三方 clone → `Desktop\XRKbar\`，不进本仓。
 
 ```bash
 python tools/process_character.py --id xuyuezhen --state idle|walk|jump|attack|all
-python tools/process_ai_pixel.py --what skies|tree|flyer|tiles|decor|world
+python tools/process_ai_pixel.py --what scenes|tree|flyer|tiles|decor|world
+python tools/process_ai_pixel.py --what scenes --id meadow
 ```
 
 ## 5. 对助手的约束
 
-- 用户说「先 X」→ **只做 X**。
+- 用户说「先 X」→ **只做 X**（例：先 reimport / 先验雨木木 → 勿并行开下只角色生图）。
 - 新角色走 `characters/<id>` + `process_character.py`，不要复活单角色脚本。
-- 改抠图只改 `pixel_matte.py`；改硬像素只改 `pixel_cook.py`。
+- **角色动作**必须遵守 **§0.3 + §0.5**（模板 + **idle 像素**锁 + 一次填格；禁止动作态喂立绘）；不得「无模板整张瞎画」。
+- **抠图/prep**必须遵守 **§0.2**；改抠图只改 `pixel_matte.py`；改硬像素只改 `pixel_cook.py`。
+- **GenerateImage / 填格**：参考顺序、幕布、等格、IDENTICAL、串行 —— 缺一不可；ingest FAIL 则重生，禁止跳过校验硬入库。
 - 改 `character.json` 帧数/尺寸后同步 reimport，并确认 `SpriteFactory` 无空帧。
+- 玩家碰撞：**从 idle 贴图不透明 bbox 读取**（`Image.get_used_rect`），禁止手写 `40×64` / 整格 `128×136` 等自设尺寸。
 - 关卡美术填 RoomBuilder 槽位；禁止 `AnimatedSprite2D.advance()`。

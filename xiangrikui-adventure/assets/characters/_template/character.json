@@ -9,10 +9,26 @@
   "quant_pad": "green",
   "key_hint": "magenta",
   "states": {
-    "idle": { "frames": 16, "fps": 8.0, "loop": true },
-    "walk": { "frames": 4, "fps": 10.0, "loop": true },
-    "jump": { "frames": 3, "fps": 10.0, "loop": true },
-    "attack": { "frames": 3, "fps": 14.0, "loop": false }
+    "idle": {
+      "frames": 16,
+      "fps": 8.0,
+      "loop": true
+    },
+    "walk": {
+      "frames": 4,
+      "fps": 10.0,
+      "loop": true
+    },
+    "jump": {
+      "frames": 3,
+      "fps": 10.0,
+      "loop": false
+    },
+    "attack": {
+      "frames": 3,
+      "fps": 14.0,
+      "loop": false
+    }
   },
   "projectile": "dice"
 }

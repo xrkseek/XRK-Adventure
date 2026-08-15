@@ -113,7 +113,7 @@ func _apply_visual() -> void:
 			anim.position = Vector2(0, -SpriteFactory.FLYER_H * 0.35)
 		Kind.BOSS:
 			anim.sprite_frames = SpriteFactory.make_boss_frames()
-			anim.play("idle")
+			anim.play("walk")
 			anim.position = Vector2(0, -SpriteFactory.BOSS_H * 0.5)
 			scale = Vector2.ONE
 
@@ -154,6 +154,7 @@ func _physics_process(delta: float) -> void:
 			if _shoot_cd <= 0.0:
 				_shoot_cd = 0.35 if hp < max_hp * 0.4 else 0.7
 				_boss_ring()
+			_update_boss_anim()
 
 	_enforce_bounds()
 
@@ -238,9 +239,24 @@ func _shoot_at_player(speed: float) -> void:
 
 
 func _boss_ring() -> void:
+	if anim and anim.sprite_frames and anim.sprite_frames.has_animation("attack"):
+		anim.play("attack")
 	for i in 5:
 		var ang := (float(i) / 5.0) * TAU + _phase
 		_spawn_shot(Vector2.from_angle(ang) * 160.0, damage)
+
+
+func _update_boss_anim() -> void:
+	if anim == null or anim.sprite_frames == null:
+		return
+	if anim.animation == "attack" and anim.is_playing():
+		return
+	if absf(velocity.x) > 8.0:
+		if anim.animation != "walk":
+			anim.play("walk")
+	elif anim.sprite_frames.has_animation("idle"):
+		if anim.animation != "idle":
+			anim.play("idle")
 
 
 func take_damage(amount: int) -> void:

@@ -5,17 +5,20 @@ extends Node2D
 var velocity: Vector2 = Vector2.ZERO
 var damage: int = 1
 var pierce: int = 0
+var size_scale: float = 1.0
 var _life: float = 2.0
 var _hit: Dictionary = {}
 
 @onready var _area: Area2D = $Hit
 @onready var _sprite: Sprite2D = $Sprite
+@onready var _shape: CollisionShape2D = $Hit/CollisionShape2D
 
 
-func setup(vel: Vector2, dmg: int, pierce_count: int) -> void:
+func setup(vel: Vector2, dmg: int, pierce_count: int, scale_mul: float = 1.0) -> void:
 	velocity = vel
 	damage = dmg
 	pierce = pierce_count
+	size_scale = maxf(0.5, scale_mul)
 
 
 func _ready() -> void:
@@ -25,12 +28,17 @@ func _ready() -> void:
 		if _sprite.texture == null:
 			_sprite.texture = load("res://assets/props/dice.png")
 		_sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+		_sprite.scale = Vector2.ONE * size_scale
 	if _area:
 		_area.monitoring = true
 		_area.collision_layer = GameConstants.LAYER_PLAYER_BULLET
 		_area.collision_mask = GameConstants.LAYER_ENEMY
 		_area.body_entered.connect(_on_body_entered)
 		_area.area_entered.connect(_on_area_entered)
+	if _shape and _shape.shape is CircleShape2D:
+		var cir := (_shape.shape as CircleShape2D).duplicate() as CircleShape2D
+		cir.radius = 14.0 * size_scale
+		_shape.shape = cir
 
 
 func _process(delta: float) -> void:

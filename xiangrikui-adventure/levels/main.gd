@@ -1,4 +1,4 @@
-﻿extends Node2D
+extends Node2D
 
 @onready var world: Node2D = %World
 @onready var entities: Node2D = %Entities
@@ -31,7 +31,6 @@ var _ambient_t: float = 0.0
 var _bg_anim_t: float = 0.0
 var _bg_anim_i: int = 0
 var _bg_anim_textures: Array[Texture2D] = []
-var _mid_anim_textures: Array[Texture2D] = []
 var current_theme: RoomBuilder.RoomTheme = RoomBuilder.RoomTheme.MEADOW
 
 var player_scene: PackedScene = preload("res://entities/player/player.tscn")
@@ -175,10 +174,7 @@ func _on_quit_to_title() -> void:
 	RunManager.mode = "title"
 	if touch_controls and touch_controls.has_method("set_gameplay_visible"):
 		touch_controls.call("set_gameplay_visible", false)
-	_clear_layer(entities)
-	_clear_projectiles()
-	player = null
-	door = null
+	_clear_world_scene()
 	hud.visible = false
 	upgrade_ui.visible = false
 	end_ui.visible = false
@@ -199,6 +195,7 @@ func show_title_menu() -> void:
 	end_ui.visible = false
 	if character_select_ui and character_select_ui.has_method("close_select"):
 		character_select_ui.call("close_select")
+	_clear_world_scene()
 	_show_title_bg()
 	if title_ui.has_method("_setup_logo"):
 		title_ui.call("_setup_logo")
@@ -231,12 +228,6 @@ func _process(delta: float) -> void:
 		camera.global_position = camera.global_position.lerp(target, 1.0 - pow(0.001, delta))
 		var trauma := _shake * _shake * (Settings.shake_mul() if Settings else 1.0)
 		camera.offset = Vector2(randf_range(-1, 1), randf_range(-1, 1)) * 14.0 * trauma
-		if mid_bg and mid_bg.texture and mid_bg.visible:
-			# Soft parallax only — mid is wider than the room so edges never open a void.
-			var mid_base_y := float(mid_bg.get_meta("base_y", GameConstants.GROUND_Y - GameConstants.VIEW_H * 0.5))
-			var mid_pad := float(mid_bg.get_meta("pad_x", 0.0))
-			mid_bg.position.x = -mid_pad - camera.global_position.x * 0.06
-			mid_bg.position.y = mid_base_y + sin(_ambient_t * 0.35) * 1.5
 
 
 func _tick_ambient(_delta: float) -> void:
@@ -287,12 +278,17 @@ func _tick_title_petals(delta: float) -> void:
 			p.position = Vector2(randf_range(40, GameConstants.VIEW_W - 40), randf_range(-40, -10))
 
 
-func _sheet_atlas_frames(path: String, frame_count: int, frame_w: int, frame_h: int) -> Array[Texture2D]:
+func _sheet_atlas_frames(path: String, frame_count: int, frame_w: int = 0, frame_h: int = 0) -> Array[Texture2D]:
 	var out: Array[Texture2D] = []
 	var tex: Texture2D = load(path)
 	if tex == null:
 		push_warning("Missing bg sheet: " + path)
 		return out
+	# 未指定则按横条均分（一张长图切两半 → 超宽帧）
+	if frame_w <= 0:
+		frame_w = int(tex.get_width() / float(maxi(1, frame_count)))
+	if frame_h <= 0:
+		frame_h = tex.get_height()
 	for i in frame_count:
 		var at := AtlasTexture.new()
 		at.atlas = tex
@@ -300,6 +296,27 @@ func _sheet_atlas_frames(path: String, frame_count: int, frame_w: int, frame_h: 
 		at.region = Rect2(i * frame_w, 0, frame_w, frame_h)
 		out.append(at)
 	return out
+
+
+func _fit_wide_bg(tex: Texture2D, cover_w: float, cover_h: float) -> void:
+	## 高度对齐视口；宽度 = 图本身×scale，不硬撑房间。
+	if tex == null:
+		return
+	var tw := float(tex.get_width())
+	var th := float(tex.get_height())
+	if tw < 1.0 or th < 1.0:
+		return
+	var s := cover_h / th
+	bg.texture = tex
+	bg.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	bg.centered = false
+	bg.scale = Vector2(s, s)
+	var drawn_w := tw * s
+	var drawn_h := th * s
+	# 标题居中；局内贴左，宽度即背景宽
+	var x := (cover_w - drawn_w) * 0.5 if _on_title else 0.0
+	bg.position = Vector2(x, (cover_h - drawn_h) * 0.5)
+	bg.set_meta("drawn_w", drawn_w)
 
 
 func _tick_bg_anim(delta: float) -> void:
@@ -310,9 +327,10 @@ func _tick_bg_anim(delta: float) -> void:
 		return
 	_bg_anim_t = 0.0
 	_bg_anim_i = (_bg_anim_i + 1) % _bg_anim_textures.size()
-	bg.texture = _bg_anim_textures[_bg_anim_i]
-	if mid_bg and mid_bg.visible and not _mid_anim_textures.is_empty():
-		mid_bg.texture = _mid_anim_textures[_bg_anim_i % _mid_anim_textures.size()]
+	var tex := _bg_anim_textures[_bg_anim_i]
+	_fit_wide_bg(tex, GameConstants.VIEW_W, GameConstants.VIEW_H)
+	if not _on_title:
+		bg.set_meta("cover_w", float(bg.get_meta("drawn_w", GameConstants.VIEW_W)))
 
 
 func _is_menu_mode() -> bool:
@@ -353,29 +371,19 @@ func _show_title_bg() -> void:
 	title_ui.mouse_filter = Control.MOUSE_FILTER_STOP
 	if character_select_ui:
 		character_select_ui.visible = false
-	# 标题只留一层干净风景，不要中景变形树
-	_mid_anim_textures.clear()
-	_bg_anim_textures = _sheet_atlas_frames(
-		"res://assets/bg/title_sheet.png",
-		SpriteFactory.BG_FRAMES,
-		SpriteFactory.BG_TITLE_W,
-		SpriteFactory.BG_TITLE_H
-	)
-	_bg_anim_i = 0
-	_bg_anim_t = 0.0
-	bg.texture = _bg_anim_textures[0] if not _bg_anim_textures.is_empty() else load("res://assets/bg/title.png")
-	bg.centered = false
-	# 等比 cover，禁止 X/Y 不同比例拉伸
-	var ts := maxf(
-		GameConstants.VIEW_W / float(SpriteFactory.BG_TITLE_W),
-		GameConstants.VIEW_H / float(SpriteFactory.BG_TITLE_H)
-	)
-	bg.scale = Vector2(ts, ts)
-	var drawn_w := float(SpriteFactory.BG_TITLE_W) * ts
-	var drawn_h := float(SpriteFactory.BG_TITLE_H) * ts
-	bg.position = Vector2((GameConstants.VIEW_W - drawn_w) * 0.5, (GameConstants.VIEW_H - drawn_h) * 0.5)
+	# 单层场景；不拼 mid
 	if mid_bg:
 		mid_bg.visible = false
+	_bg_anim_textures = _sheet_atlas_frames("res://assets/bg/scene_title_sheet.png", SpriteFactory.BG_FRAMES)
+	if _bg_anim_textures.is_empty():
+		_bg_anim_textures = _sheet_atlas_frames("res://assets/bg/scene_title.png", 1)
+	_bg_anim_i = 0
+	_bg_anim_t = 0.0
+	_fit_wide_bg(
+		_bg_anim_textures[0] if not _bg_anim_textures.is_empty() else null,
+		GameConstants.VIEW_W,
+		GameConstants.VIEW_H
+	)
 	_spawn_title_petals()
 	camera.global_position = Vector2(GameConstants.VIEW_W * 0.5, GameConstants.VIEW_H * 0.5)
 	camera.offset = Vector2.ZERO
@@ -458,6 +466,18 @@ func on_upgrade_picked(upgrade: Dictionary) -> void:
 		_build_room()
 
 
+func _clear_world_scene() -> void:
+	## 回标题：清掉平台/装饰/云/实体，只留标题风景。
+	_clear_layer(platforms)
+	_clear_layer(decor_back)
+	_clear_layer(decor_front)
+	_clear_layer(clouds)
+	_clear_layer(entities)
+	_clear_projectiles()
+	player = null
+	door = null
+
+
 func _clear_layer(node: Node) -> void:
 	if node == null:
 		return
@@ -480,63 +500,20 @@ func _build_room() -> void:
 
 	_on_title = false
 	_clear_title_petals()
-	# Cover full room (+ pad). Never leave a blue void on the right when scrolling.
-	var cover_w := maxf(room_width, GameConstants.VIEW_W) + 160.0
-	_bg_anim_textures = _sheet_atlas_frames(
-		RoomBuilder.sky_sheet_path(current_theme),
-		SpriteFactory.BG_FRAMES,
-		SpriteFactory.BG_SKY_W,
-		SpriteFactory.BG_SKY_H
-	)
+	# 背景宽度 = 图自身铺高后的宽度，不硬撑房间
+	if mid_bg:
+		mid_bg.visible = false
+	_bg_anim_textures = _sheet_atlas_frames(RoomBuilder.sky_sheet_path(current_theme), SpriteFactory.BG_FRAMES)
+	if _bg_anim_textures.is_empty():
+		_bg_anim_textures = _sheet_atlas_frames(RoomBuilder.sky_path(current_theme), 1)
 	_bg_anim_i = 0
 	_bg_anim_t = 0.0
-	bg.texture = (
-		_bg_anim_textures[0]
-		if not _bg_anim_textures.is_empty()
-		else load(RoomBuilder.sky_path(current_theme))
+	_fit_wide_bg(
+		_bg_anim_textures[0] if not _bg_anim_textures.is_empty() else null,
+		GameConstants.VIEW_W,
+		GameConstants.VIEW_H
 	)
-	bg.centered = false
-	var sky_tw := float(SpriteFactory.BG_SKY_W)
-	var sky_th := float(SpriteFactory.BG_SKY_H)
-	# 等比 cover 铺满房间宽度与视高
-	var sky_s := maxf(cover_w / sky_tw, GameConstants.VIEW_H / sky_th)
-	bg.scale = Vector2(sky_s, sky_s)
-	var sky_drawn_w := sky_tw * sky_s
-	var sky_drawn_h := sky_th * sky_s
-	bg.position = Vector2(-40.0 + (cover_w - sky_drawn_w) * 0.5, (GameConstants.VIEW_H - sky_drawn_h) * 0.5)
-	if mid_bg:
-		# 中景只留山丘（无变形树）；树交给 decor
-		_mid_anim_textures = _sheet_atlas_frames(
-			"res://assets/bg/mid_sheet.png",
-			SpriteFactory.BG_FRAMES,
-			SpriteFactory.BG_MID_W,
-			SpriteFactory.BG_MID_H
-		)
-		mid_bg.texture = (
-			_mid_anim_textures[0]
-			if not _mid_anim_textures.is_empty()
-			else load("res://assets/bg/mid.png")
-		)
-		mid_bg.visible = current_theme != RoomBuilder.RoomTheme.CREEK
-		mid_bg.centered = false
-		var mid_tw := float(SpriteFactory.BG_MID_W)
-		var mid_th := float(SpriteFactory.BG_MID_H)
-		var mid_cover := cover_w * 1.12
-		var mid_screen_h := GameConstants.VIEW_H * 0.38
-		# 等比：按宽度铺满，高度随比例走（不再单独压扁高度）
-		var mid_s := mid_cover / mid_tw
-		var mid_h_cap := mid_screen_h / mid_th
-		if mid_s > mid_h_cap:
-			mid_s = mid_h_cap
-		mid_bg.scale = Vector2(mid_s, mid_s)
-		var mid_drawn_h := mid_th * mid_s
-		var mid_drawn_w := mid_tw * mid_s
-		var mid_base_y := GameConstants.GROUND_Y - mid_drawn_h
-		var mid_pad := maxf(0.0, (mid_cover - mid_drawn_w) * 0.5)
-		mid_bg.set_meta("base_y", mid_base_y)
-		mid_bg.set_meta("pad_x", mid_pad)
-		mid_bg.position = Vector2(-mid_pad, mid_base_y)
-		mid_bg.modulate = Color(1, 0.9, 0.85, 0.92) if current_theme == RoomBuilder.RoomTheme.DUSK else Color(1, 1, 1, 1.0)
+	bg.set_meta("cover_w", float(bg.get_meta("drawn_w", GameConstants.VIEW_W)))
 
 	var builder := RoomBuilder.new(RunManager.rng)
 	builder.build(platforms, decor_back, decor_front, clouds, room_width, floor_n, current_theme)
@@ -649,8 +626,26 @@ func _spawn_door() -> void:
 
 
 func _on_door_entered(body: Node) -> void:
-	if body.is_in_group("player") and RunManager.mode == "play":
+	if not (body.is_in_group("player") and RunManager.mode == "play"):
+		return
+	if not player or not is_instance_valid(player):
 		RunManager.offer_upgrades()
+		return
+	# 进门：角色缩进门内 + 门放大，再进强化
+	if door and is_instance_valid(door) and door.body_entered.is_connected(_on_door_entered):
+		door.body_entered.disconnect(_on_door_entered)
+	player.enable_control(false)
+	var tw := create_tween()
+	tw.set_parallel(true)
+	tw.tween_property(player, "global_position", door.global_position + Vector2(0, -24), 0.28).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	tw.tween_property(player, "scale", Vector2(0.12, 0.12), 0.32).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_IN)
+	tw.tween_property(player, "modulate:a", 0.0, 0.28)
+	if door and is_instance_valid(door):
+		tw.tween_property(door, "scale", Vector2(1.45, 1.45), 0.32).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tw.set_parallel(false)
+	tw.tween_callback(func() -> void:
+		RunManager.offer_upgrades()
+	)
 
 
 func _on_player_died() -> void:

@@ -1,0 +1,59 @@
+{
+  "id": "meijia",
+  "display_name": "王美嘉",
+  "cell_w": 64,
+  "cell_h": 68,
+  "px": 2,
+  "body_h": 60,
+  "palette": 96,
+  "quant_pad": "black",
+  "key_hint": "black",
+  "matte": "flood",
+  "hard_pixel": false,
+  "states": {
+    "idle": {
+      "frames": 16,
+      "fps": 8.0,
+      "loop": true
+    },
+    "walk": {
+      "frames": 6,
+      "fps": 10.0,
+      "loop": true
+    },
+    "jump": {
+      "frames": 8,
+      "fps": 12.0,
+      "loop": false,
+      "phases": {
+        "ascent": [
+          1,
+          2,
+          3
+        ],
+        "peak": 4,
+        "descent": [
+          5
+        ],
+        "land": [
+          6,
+          7
+        ]
+      }
+    },
+    "attack": {
+      "frames": 6,
+      "fps": 14.0,
+      "loop": false,
+      "dirs": [
+        "e",
+        "ne",
+        "n",
+        "se",
+        "s"
+      ]
+    }
+  },
+  "projectile": "scroll",
+  "attack_duration": 0.43
+}

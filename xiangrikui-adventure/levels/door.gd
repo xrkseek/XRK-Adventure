@@ -15,10 +15,11 @@ func _ready() -> void:
 	monitorable = false
 	z_index = GameConstants.Z_ENTITIES + 1
 	_base_y = position.y
-	scale = Vector2(0.4, 0.4)
+	# 出场：从小弹到 1（进门缩放在 main._on_door_entered）
+	scale = Vector2(0.28, 0.28)
 	modulate = Color(1.4, 1.35, 0.8, 1.0)
 	var tw := create_tween()
-	tw.tween_property(self, "scale", Vector2.ONE, 0.35).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tw.tween_property(self, "scale", Vector2.ONE, 0.4).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	tw.parallel().tween_property(self, "modulate", Color.WHITE, 0.4)
 
 

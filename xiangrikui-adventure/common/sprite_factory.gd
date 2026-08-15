@@ -12,8 +12,8 @@ const WEED_W := 64
 const WEED_H := 88
 const FLYER_W := 128
 const FLYER_H := 96
-const BOSS_W := 144
-const BOSS_H := 144
+const BOSS_W := 240
+const BOSS_H := 240
 const TITLE_LOGO_W := 710
 const TITLE_LOGO_H := 440
 const TITLE_LOGO_FRAMES := 4
@@ -25,7 +25,7 @@ const BG_MID_H := 280
 const BG_TITLE_W := 960
 const BG_TITLE_H := 540
 const BG_FRAMES := 2
-const BG_FPS := 2.0
+const BG_FPS := 0.45  # 超宽双帧慢播
 
 
 static func _new_frames() -> SpriteFrames:
@@ -85,17 +85,114 @@ static func make_character_frames(char_id: String = "") -> SpriteFrames:
 	for state_name in states.keys():
 		var st: Dictionary = states[state_name]
 		var path := "%s/anim/%s_sheet.png" % [character_dir(char_id), state_name]
-		_add_sheet_anim(
-			sf,
-			str(state_name),
-			path,
-			int(st.get("frames", 1)),
-			cell_w,
-			cell_h,
-			float(st.get("fps", 8.0)),
-			bool(st.get("loop", true))
-		)
+		var dirs: Array = st.get("dirs", [])
+		if str(state_name) == "attack" and dirs.size() > 0:
+			_add_dir_attack_anims(
+				sf,
+				path,
+				dirs,
+				int(st.get("frames", 1)),
+				cell_w,
+				cell_h,
+				float(st.get("fps", 12.0)),
+				bool(st.get("loop", false))
+			)
+		else:
+			_add_sheet_anim(
+				sf,
+				str(state_name),
+				path,
+				int(st.get("frames", 1)),
+				cell_w,
+				cell_h,
+				float(st.get("fps", 8.0)),
+				bool(st.get("loop", true))
+			)
 	return sf
+
+
+## 右半平面 5 向（e/ne/n/se/s）；左半用 flip_h 镜像。
+static func attack_base_dir_key(aim: Vector2) -> String:
+	var d := aim.normalized() if aim.length_squared() > 0.0001 else Vector2.RIGHT
+	var ang := d.angle()  # -PI..PI，0=右，-PI/2=上
+	# 折到右半平面再分类
+	var a := ang
+	if absf(a) > PI * 0.5:
+		a = PI - a if a > 0.0 else -PI - a
+	# 右半：-90..+90 → n / ne / e / se / s
+	if a <= -PI * 0.375:
+		return "n"
+	if a <= -PI * 0.125:
+		return "ne"
+	if a < PI * 0.125:
+		return "e"
+	if a < PI * 0.375:
+		return "se"
+	return "s"
+
+
+static func attack_anim_name_for_aim(aim: Vector2, profile: Dictionary) -> StringName:
+	var st: Dictionary = profile.get("states", {}).get("attack", {})
+	var dirs: Array = st.get("dirs", [])
+	if dirs.is_empty():
+		return &"attack"
+	var key := attack_base_dir_key(aim)
+	var anim := "attack_%s" % key
+	return StringName(anim)
+
+
+static func attack_anim_flip_h(aim: Vector2, _profile: Dictionary) -> bool:
+	## 左半平面镜像右半向帧
+	return aim.x < -0.2
+
+
+static func _add_dir_attack_anims(
+	sf: SpriteFrames,
+	path: String,
+	dirs: Array,
+	frame_count: int,
+	frame_w: int,
+	frame_h: int,
+	speed: float,
+	loop: bool
+) -> void:
+	var tex: Texture2D = load(path)
+	if tex == null:
+		push_error("Missing texture: " + path)
+		return
+	var rows := dirs.size()
+	var expect_w := frame_count * frame_w
+	var expect_h := rows * frame_h
+	var tw := tex.get_width()
+	var th := tex.get_height()
+	if tw != expect_w or th != expect_h:
+		push_error(
+			"Dir attack sheet mismatch %s: got %dx%d, expected %dx%d (%d dirs × %d frames)."
+			% [path, tw, th, expect_w, expect_h, rows, frame_count]
+		)
+	for r in rows:
+		var dir_key := str(dirs[r])
+		var anim_name := "attack_%s" % dir_key
+		if sf.has_animation(anim_name):
+			sf.remove_animation(anim_name)
+		sf.add_animation(anim_name)
+		sf.set_animation_speed(anim_name, speed)
+		sf.set_animation_loop(anim_name, loop)
+		for c in frame_count:
+			var at := AtlasTexture.new()
+			at.atlas = tex
+			at.filter_clip = true
+			at.region = Rect2(c * frame_w, r * frame_h, frame_w, frame_h)
+			sf.add_frame(anim_name, at)
+	# 兼容旧逻辑：attack = attack_e
+	if sf.has_animation("attack_e"):
+		if sf.has_animation("attack"):
+			sf.remove_animation("attack")
+		sf.add_animation("attack")
+		sf.set_animation_speed("attack", speed)
+		sf.set_animation_loop("attack", loop)
+		for i in sf.get_frame_count("attack_e"):
+			sf.add_frame("attack", sf.get_frame_texture("attack_e", i))
 
 
 static func player_cell_size(char_id: String = "") -> Vector2i:
@@ -150,6 +247,8 @@ static func make_bg_frames(sheet_path: String, frame_w: int, frame_h: int, fps: 
 static func make_boss_frames() -> SpriteFrames:
 	var sf := _new_frames()
 	_add_sheet_anim(sf, "idle", "res://assets/enemies/anim/enemy_boss_sheet.png", 4, BOSS_W, BOSS_H, 6.0, true)
+	_add_sheet_anim(sf, "walk", "res://assets/enemies/anim/enemy_boss_walk_sheet.png", 6, BOSS_W, BOSS_H, 10.0, true)
+	_add_sheet_anim(sf, "attack", "res://assets/enemies/anim/enemy_boss_attack_sheet.png", 6, BOSS_W, BOSS_H, 12.0, false)
 	return sf
 
 

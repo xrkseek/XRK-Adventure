@@ -1,0 +1,217 @@
+{
+  "_doc": "鹿历险记统一生图/入库规格。吸收 XRKbar/sprite-animator（4×4 定格、同角色一致性）与 spritebrew（#FF00FF 幕、NEAREST、边溢色清理、画格占比）。Godot 槽位以 GameConstants / character.json 为准；本文件管 AI 与 process_*。改尺寸后必须 reimport。",
+  "pixel": {
+    "resample": "NEAREST_only",
+    "cook": "BOX → quantize(no dither) → fringe → despill → NEAREST×px",
+    "forbid": ["LANCZOS", "bilinear", "bicubic", "full_image_chroma_for_characters"],
+    "matte": {
+      "character": "edge_flood_only",
+      "prop_fallback": "corner_sample_tolerance_ok",
+      "despill": "spritebrew_despillChromaEdges",
+      "fill_pct": 75,
+      "margin_pct": 8,
+      "ref": "Desktop/XRKbar/spritebrew CharacterAutoPrep + despillChromaEdges"
+    }
+  },
+  "screen": {
+    "magenta": "#FF00FF",
+    "black": "#000000",
+    "rules": {
+      "pink_subject": "black",
+      "dark_clothes": "magenta",
+      "green_foliage_tiles": "magenta",
+      "opaque_sky_scene": "none",
+      "character_forbid_screen_color": true,
+      "no_visible_grid": true,
+      "virtual_equal_cells": true
+    },
+    "quant_pad": {
+      "pink": "black",
+      "dark_or_tiles": "green",
+      "forbid": "magenta"
+    },
+    "margin_pct": 8,
+      "fill_pct_character": 60,
+      "margin_note": "生图角色约占格60%，均匀居中留白方便裁；跳跃用姿态表高度勿顶格；特效可用非幕色"
+  },
+  "frontend": {
+    "sprite_animator": {
+      "path": "Desktop/XRKbar/sprite-animator",
+      "idle_grid": "4x4",
+      "template_cell": 256,
+      "template": "solid screen fill only; math virtual equal cells; no borders/labels/guides",
+      "style_tag": "match confirmed idle pixel base; soft cel chibi",
+      "tool": "tools/make_anim_template.py",
+      "rule": "template(screen only) + cutout style + idle pose lock → one fill → extract → process_character",
+      "forbid": [
+        "fill without template",
+        "use cutout as motion base",
+        "ad-hoc single frames without idle lock",
+        "grey/black cell bg when screen is magenta",
+        "visible borders / labels / grid lines",
+        "magenta or #FF00FF on character body (hood eyes, trim, etc.)"
+      ],
+      "states": {
+        "idle": { "grid": "4x4", "preset": "idle", "frames_out": 16 },
+        "walk": { "grid": "6x1", "preset": "walk", "frames_out": 6 },
+        "jump": { "grid": "8x1", "preset": "jump", "frames_out": 8 },
+        "attack": { "grid": "5x6", "preset": "attack", "frames_out": 30 }
+      },
+      "note": "仅作生帧前端；入库前必须 process_character + pixel_matte。详见 deer-ai-pixel-pipeline §0.5"
+    },
+    "spritebrew": {
+      "path": "Desktop/XRKbar/spritebrew",
+      "default_bg": "#FF00FF",
+      "cell_presets": [16, 24, 32, 48, 64, 128, 256],
+      "animate": "Animate My Character = upload confirmed pixel base then walk/jump/attack",
+      "note": "第三方；不进本仓。导出后走本仓 cook"
+    }
+  },
+  "character": {
+    "cell_w": 64,
+    "cell_h": 68,
+    "px": 2,
+    "body_h": 60,
+    "sheet": "horizontal_strip",
+    "ai_idle_ok": ["4x4_grid", "horizontal_strip"],
+    "states": {
+      "idle": { "frames": 16, "fps": 8.0 },
+      "walk": { "frames": 4, "fps": 10.0 },
+      "jump": { "frames": 3, "fps": 10.0 },
+      "attack": { "frames": 3, "fps": 14.0 }
+    },
+    "truth": "assets/characters/<id>/character.json"
+  },
+  "enemies": {
+    "bug": { "w": 72, "h": 56 },
+    "weed": { "w": 64, "h": 88 },
+    "flyer": { "w": 128, "h": 96, "screen": "black" },
+    "boss": { "w": 240, "h": 240 }
+  },
+  "props": {
+    "dice": { "cook_box": [32, 32], "px": 2 },
+    "scroll": { "cook_box": [36, 36], "px": 2, "note": "王美嘉弹：短飞后悬浮旋转 AoE" }
+  },
+  "ui": {
+    "title_logo": {
+      "frames": 4,
+      "fps": 5.0,
+      "sheet": "horizontal_strip",
+      "screen": "magenta",
+      "cell_hint": [280, 120, 440, 220]
+    }
+  },
+  "scene": {
+    "ids": ["title", "meadow", "orchard", "creek", "dusk", "cliff"],
+    "names": {
+      "title": "月下竹溪",
+      "meadow": "向阳草地",
+      "orchard": "果园小径",
+      "creek": "溪边青石",
+      "dusk": "枫林暮色",
+      "cliff": "岩阶高台"
+    },
+    "ai": {
+      "aspect": "16:9",
+      "layout": "vertical_stack_2",
+      "style": "high-res sharp illustration NOT pixel art; hard-pixel in Python",
+      "subtle_pair": true,
+      "max_frame_diff": 10.0,
+      "prompt_must": [
+        "TWO nearly identical ultra-wide banners STACKED",
+        "same camera palette exposure",
+        "only tiny motion (mist/cloud/firefly)",
+        "no characters no UI no text no sunflowers focus"
+      ]
+    },
+    "cook": {
+      "split": "vertical",
+      "keep_wide": true,
+      "min_aspect": 0,
+      "frame_h_1x": 360,
+      "px": 2,
+      "colors": 64,
+      "fps": 0.45,
+      "raw": "assets/raw/scene_<id>_ai.png",
+      "out_sheet": "assets/bg/scene_<id>_sheet.png",
+      "out_frame0": "assets/bg/scene_<id>.png",
+      "note": "frame @2x 高=720 对齐 VIEW_H，避免局内二次放大发糊；宽度随原图，不强制超宽裁切"
+    }
+  },
+  "tiles": {
+    "ids": ["meadow", "orchard", "creek", "dusk", "cliff"],
+    "parts": ["ground", "edge", "platform"],
+    "ai": {
+      "screen": "#FF00FF",
+      "style": "high-res sharp illustration NOT pixel art; flat orthographic 2D side-view; hard-pixel later in Python",
+      "prompt_common": [
+        "solid hot magenta #FF00FF background ONLY",
+        "ONE single asset centered, large margin ≥8%",
+        "NEVER truncate by canvas edges",
+        "flat orthographic side-view, NO 3/4 perspective, NO isometric",
+        "no characters, no UI, no text, no second object"
+      ],
+      "parts": {
+        "ground": {
+          "aspect": "1:1",
+          "raw": "tiles_<id>_ground_ai.png",
+          "out": "ground.png",
+          "must": [
+            "square ground CROSS-SECTION tile",
+            "grass or surface material ONLY on the TOP strip",
+            "soil/stone fills the rest of the square",
+            "designed to tile horizontally"
+          ]
+        },
+        "edge": {
+          "aspect": "16:9",
+          "raw": "tiles_<id>_edge_ai.png",
+          "out": "grass_edge.png",
+          "must": [
+            "ONE wide short HORIZONTAL ribbon only",
+            "grass/moss/leaf edge strip, much wider than tall",
+            "NOT a vertical pillar, NOT a square block"
+          ]
+        },
+        "platform": {
+          "aspect": "16:9",
+          "raw": "tiles_<id>_platform_ai.png",
+          "out": "platform.png",
+          "must": [
+            "ONE wide short rectangular platform SIDE VIEW",
+            "plank or stone ledge from the side",
+            "flat top edge, full rectangular body",
+            "NOT 3/4 view, NOT floating island with hanging underside"
+          ]
+        }
+      }
+    },
+    "cook": {
+      "ground": { "w": 32, "h": 32, "opaque": true, "colors": 40 },
+      "edge": { "w": 32, "h": 10, "opaque": false, "colors": 28, "out": "grass_edge.png" },
+      "platform": { "w": 96, "h": 28, "opaque": true, "colors": 36 },
+      "pad": "green",
+      "pipeline": "matte(blob) → fringe → hard_pixel → kill_screen → fill_opaque_if_needed",
+      "raw": "assets/raw/tiles_<id>_<part>_ai.png",
+      "out_dir": "assets/tiles/<id>/"
+    },
+    "themes": {
+      "meadow": "sunny meadow — bright green grass, warm brown soil, light wood",
+      "orchard": "fruit orchard — mossy green, rich soil, leaf flecks, weathered wood",
+      "creek": "cool creek — teal moss, wet dark soil, pebbles, gray stone ledge",
+      "dusk": "maple dusk — autumn orange litter, reddish soil, dark warm wood",
+      "cliff": "rocky cliff — gray stone, sparse moss, cool dirt, stone ledge"
+    },
+    "palette_fallback": true
+  },
+  "world_slots": {
+    "VIEW": [1280, 720],
+    "TILE": 32,
+    "GROUND_Y": 620,
+    "GROUND_H": 120,
+    "PLAT_TEX": [96, 28],
+    "PLAT_THICKNESS": 18,
+    "no_mid_layer": true,
+    "stretch": { "aspect": "expand", "scale_mode": "fractional" }
+  }
+}
